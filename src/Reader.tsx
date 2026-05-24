@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import "./Reader.css";
 
-type Theme = "light" | "sepia" | "dark";
+export type Theme = "light" | "sepia" | "dark";
 
 interface SpineItem { href: string; id: string; }
 interface TocEntry { label: string; href: string; children: TocEntry[]; }
@@ -26,7 +26,7 @@ const BG: Record<Theme, string> = {
   dark: "#1c1c1e",
 };
 
-function makeThemeCSS(theme: Theme, fontSize: number): string {
+export function makeThemeCSS(theme: Theme, fontSize: number): string {
   const text = { light: "#1a1a1a", sepia: "#3b2d1f", dark: "#dcdcdc" }[theme];
   const link = { light: "#1a73e8", sepia: "#7a5c00", dark: "#7eb8f7" }[theme];
   return `
@@ -40,7 +40,24 @@ function makeThemeCSS(theme: Theme, fontSize: number): string {
       padding: 48px 32px 80px !important;
       word-break: break-word !important;
     }
-    a { color: ${link} !important; }
+    a { color: inherit !important; }
+    a[epub\\:type~="noteref"],
+    a[epub\\:type~="footnote"],
+    a[role~="doc-noteref"],
+    a[role~="doc-footnote"],
+    a.noteref,
+    a.footnote,
+    a.ref_mi,
+    a[class*="noteref" i],
+    a[class*="footnote" i],
+    a[href^="#fn"],
+    a[href^="#footnote"],
+    a[href*="#fn"],
+    a[href*="#footnote"],
+    a[href*="footnote"],
+    a[href*="noteref"] {
+      color: ${link} !important;
+    }
     img { max-width: 100% !important; height: auto !important; }
     * { box-sizing: border-box; }
   `;
