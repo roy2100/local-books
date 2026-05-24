@@ -215,18 +215,20 @@
 /* Light / sepia settings */
 .reader-settings--light,
 .reader-settings--sepia {
-  background: rgba(252, 250, 246, 0.96);
-  border: 1px solid rgba(0, 0, 0, 0.09);
+  background: rgba(252, 250, 246, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.65);
   color: #1a1a1a;
-  backdrop-filter: blur(24px);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
 }
 
 /* Dark settings */
 .reader-settings--dark {
-  background: rgba(38, 38, 42, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(38, 38, 42, 0.80);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   color: #e5e5e5;
-  backdrop-filter: blur(24px);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
 }
 
 .settings-row {
@@ -519,5 +521,26 @@
 }
 
 .toc-panel--dark::before {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ── Settings panel highlight line ──────────────────────── */
+.reader-settings--light::before,
+.reader-settings--sepia::before,
+.reader-settings--dark::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  border-radius: 14px 14px 0 0;
+  pointer-events: none;
+}
+
+.reader-settings--light::before,
+.reader-settings--sepia::before {
+  background: rgba(255, 255, 255, 0.80);
+}
+
+.reader-settings--dark::before {
   background: rgba(255, 255, 255, 0.15);
 }
