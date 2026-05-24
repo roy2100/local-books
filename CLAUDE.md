@@ -35,12 +35,46 @@ This is a **Tauri 2** desktop app (macOS-only target) with a React/TypeScript fr
 
 All business logic lives in Rust. The frontend calls Rust commands via `invoke()` from `@tauri-apps/api/core` and receives serialized data back — there is no direct filesystem access from JS.
 
-```
-Frontend (React)  →  invoke("command_name", args)  →  Rust command  →  filesystem
-                  ←  serialized struct (JSON)       ←
+EPUB chapter content is served via a custom `epub://` URI scheme protocol registered in Rust. The reader iframe loads chapters directly by URL — no third-party EPUB renderer.
+
+#### 导入书籍流程
+
+```mermaid
+flowchart LR
+    A[用户选择文件夹] --> B["pick_folder()"]
+    B --> C["import_folder()"]
+    C --> D["scan_folder_for_epubs()"]
+    D --> E["extract_epub_metadata()"]
+    E --> F["解析 OPF\ntitle / author / cover"]
+    F --> G["保存 library.json"]
+    G --> H["书架 UI 刷新"]
 ```
 
-EPUB chapter content is served via a custom `epub://` URI scheme protocol registered in Rust. The reader iframe loads chapters directly by URL — no third-party EPUB renderer.
+#### 阅读器核心流程
+
+```mermaid
+flowchart TD
+    A[双击书籍] --> B["open_reader_window()\n新建 WebviewWindow"]
+    B --> C["get_book_contents()\n解析 OPF spine + TOC"]
+    C --> D["Reader.tsx\n渲染目录 + 进度"]
+
+    D --> E["iframe.src =\nepub://localhost/{id}/{chapter}"]
+
+    subgraph epub_protocol ["epub:// 协议处理器 (Rust)"]
+        E --> F["从 ZIP 按路径提取文件"]
+        F --> G{文件类型}
+        G -->|HTML / XHTML| H["注入 reader script\n+ 正确 MIME"]
+        G -->|CSS / 图片 / 字体| I["原样返回\n+ 正确 MIME"]
+    end
+
+    H --> J["章节渲染完成"]
+
+    subgraph postmessage ["postMessage 双向通信"]
+        J -->|epub-ready| K["Reader 注入主题 CSS"]
+        K -->|epub-theme| J
+        J -->|epub-navigate\n跨文件链接| L["更新 spineIndex\n跳转章节"]
+    end
+```
 
 ### Rust backend (`src-tauri/src/lib.rs`)
 
