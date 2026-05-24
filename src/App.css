@@ -62,14 +62,14 @@ body {
   padding-left: 80px;
 }
 
-.titlebar-controls {
-  width: 0;
+.titlebar-drag {
+  flex: 1;
+  /* Takes all space to the left of the search input, acts as drag handle */
 }
 
 .titlebar-search {
-  flex: 1;
-  max-width: 320px;
-  margin: 0 auto;
+  flex-shrink: 0;
+  width: 260px;
 }
 
 .search-input {

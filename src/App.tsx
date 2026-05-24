@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
 import Reader from "./Reader";
 import { filterBooks } from "./utils";
@@ -196,8 +197,14 @@ function Bookshelf() {
 
   return (
     <div className="app">
-      <div className="titlebar" data-tauri-drag-region>
-        <div className="titlebar-controls" />
+      <div className="titlebar">
+        {/* Explicit drag zone: left of search, clears macOS traffic lights */}
+        <div
+          className="titlebar-drag"
+          onMouseDown={(e) => {
+            if (e.button === 0) getCurrentWindow().startDragging();
+          }}
+        />
         <div className="titlebar-search">
           <input
             className="search-input"

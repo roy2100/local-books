@@ -1,71 +1,57 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import ePub from "epubjs";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./Reader.css";
 
 type Theme = "light" | "sepia" | "dark";
 
-const THEMES: Record<Theme, Record<string, Record<string, string>>> = {
-  light: {
-    body: {
-      background: "#faf9f6",
-      color: "#1a1a1a",
-      "font-family": "-apple-system, 'Helvetica Neue', serif",
-      "line-height": "1.85",
-    },
-  },
-  sepia: {
-    body: {
-      background: "#f6f0e6",
-      color: "#3b2d1f",
-      "font-family": "-apple-system, 'Helvetica Neue', serif",
-      "line-height": "1.85",
-    },
-  },
-  dark: {
-    body: {
-      background: "#1c1c1e",
-      color: "#dcdcdc",
-      "font-family": "-apple-system, 'Helvetica Neue', serif",
-      "line-height": "1.85",
-    },
-  },
-};
-
-const BG: Record<Theme, string> = {
-  light: "#f0ede6",
-  sepia: "#e8dfc8",
-  dark: "#111113",
-};
-
-interface TocItem {
-  id: string;
-  href: string;
-  label: string;
-  subitems?: TocItem[];
-}
+interface SpineItem { href: string; id: string; }
+interface TocEntry { label: string; href: string; children: TocEntry[]; }
+interface BookContents { spine: SpineItem[]; toc: TocEntry[]; }
 
 interface Props {
   bookId: string;
   bookTitle: string;
 }
 
-// Strip fragment (#anchor) and resolve to basename for comparison
-function hrefBase(href: string): string {
-  return href.split("#")[0].split("/").pop() ?? href.split("#")[0];
+const BG: Record<Theme, string> = {
+  light: "#faf9f6",
+  sepia: "#f6f0e6",
+  dark: "#1c1c1e",
+};
+
+function makeThemeCSS(theme: Theme, fontSize: number): string {
+  const text = { light: "#1a1a1a", sepia: "#3b2d1f", dark: "#dcdcdc" }[theme];
+  const link = { light: "#1a73e8", sepia: "#7a5c00", dark: "#7eb8f7" }[theme];
+  return `
+    html, body { background: ${BG[theme]} !important; color: ${text} !important; }
+    body {
+      font-size: ${fontSize}px !important;
+      font-family: -apple-system, 'PingFang SC', 'Noto Sans CJK SC', Georgia, serif !important;
+      line-height: 1.85 !important;
+      max-width: 700px !important;
+      margin: 0 auto !important;
+      padding: 48px 32px 80px !important;
+      word-break: break-word !important;
+    }
+    a { color: ${link} !important; }
+    img { max-width: 100% !important; height: auto !important; }
+    * { box-sizing: border-box; }
+  `;
 }
 
 function TocRow({
   item,
   depth,
-  activeBase,
+  activeHref,
   onNavigate,
 }: {
-  item: TocItem;
+  item: TocEntry;
   depth: number;
-  activeBase: string;
+  activeHref: string;
   onNavigate: (href: string) => void;
 }) {
-  const isActive = hrefBase(item.href) === activeBase;
+  const isActive = item.href.split("#")[0] === activeHref;
   return (
     <>
       <button
@@ -76,12 +62,12 @@ function TocRow({
       >
         <span className="toc-label">{item.label.trim()}</span>
       </button>
-      {item.subitems?.map((sub) => (
+      {item.children?.map((sub, i) => (
         <TocRow
-          key={sub.id || sub.href}
+          key={i}
           item={sub}
           depth={depth + 1}
-          activeBase={activeBase}
+          activeHref={activeHref}
           onNavigate={onNavigate}
         />
       ))}
@@ -90,31 +76,102 @@ function TocRow({
 }
 
 export default function Reader({ bookId, bookTitle }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const rendRef = useRef<any>(null);
-  const bookRef = useRef<any>(null);
-
-  const [progress, setProgress] = useState(0);
-  const [showUI, setShowUI] = useState(true);
+  const [contents, setContents] = useState<BookContents | null>(null);
+  const [spineIndex, setSpineIndex] = useState(0);
+  const [pendingAnchor, setPendingAnchor] = useState("");
   const [theme, setTheme] = useState<Theme>("light");
   const [fontSize, setFontSize] = useState(18);
   const [showSettings, setShowSettings] = useState(false);
   const [showToc, setShowToc] = useState(false);
-  const [toc, setToc] = useState<TocItem[]>([]);
-  const [activeHrefBase, setActiveHrefBase] = useState("");
+  const [showUI, setShowUI] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Keep a ref so postMessage callbacks always see current values
+  const themeRef = useRef({ theme, fontSize });
+  useEffect(() => { themeRef.current = { theme, fontSize }; }, [theme, fontSize]);
 
+  // Load spine + TOC from Rust
+  useEffect(() => {
+    setLoading(true);
+    invoke<BookContents>("get_book_contents", { bookId })
+      .then((c) => { setContents(c); setLoading(false); })
+      .catch((e) => { setError(String(e)); setLoading(false); });
+  }, [bookId]);
+
+  // Apply theme CSS into the iframe via postMessage
+  const applyTheme = useCallback(() => {
+    const { theme, fontSize } = themeRef.current;
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: "epub-theme", css: makeThemeCSS(theme, fontSize) },
+      "*"
+    );
+  }, []);
+
+  useEffect(() => { applyTheme(); }, [theme, fontSize, applyTheme]);
+
+  // Listen for messages from the injected script inside the iframe
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (!e.data) return;
+      if (e.data.type === "epub-ready") { applyTheme(); return; }
+      if (e.data.type !== "epub-navigate") return;
+
+      const raw: string = e.data.href ?? "";
+      try {
+        const url = new URL(raw);
+        // pathname = "/{bookId}/{filePath}"
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (parts.length < 2) return;
+        const filePath = parts.slice(1).join("/");
+        const anchor = url.hash.slice(1);
+
+        setContents((prev) => {
+          if (!prev) return prev;
+          const idx = prev.spine.findIndex((s) => s.href === filePath);
+          if (idx >= 0) {
+            setPendingAnchor(anchor);
+            setSpineIndex(idx);
+          }
+          return prev;
+        });
+      } catch {
+        // ignore malformed URLs
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [applyTheme]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const total = contents?.spine.length ?? 1;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
+        e.preventDefault();
+        setPendingAnchor("");
+        setSpineIndex((i) => Math.min(i + 1, total - 1));
+      }
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setPendingAnchor("");
+        setSpineIndex((i) => Math.max(i - 1, 0));
+      }
+      if (e.key === "Escape") { setShowToc(false); setShowSettings(false); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [contents]);
+
+  // Auto-hide UI chrome
   const bumpUI = useCallback(() => {
     setShowUI(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => {
-      setShowUI(false);
-    }, 3000);
+    hideTimer.current = setTimeout(() => setShowUI(false), 3000);
   }, []);
 
-  // Keep UI visible while panels are open
   useEffect(() => {
     if (showSettings || showToc) {
       if (hideTimer.current) clearTimeout(hideTimer.current);
@@ -122,113 +179,40 @@ export default function Reader({ bookId, bookTitle }: Props) {
     }
   }, [showSettings, showToc]);
 
-  // Init epub.js
-  useEffect(() => {
-    if (!containerRef.current) return;
+  useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current); }, []);
 
-    // Append .epub so epub.js's determineType() treats this as a binary download
-    // (without extension it falls back to "directory" mode and makes individual file requests)
-    const book = ePub(`epub://localhost/${bookId}/book.epub`);
-    bookRef.current = book;
-
-    const rendition = book.renderTo(containerRef.current, {
-      flow: "paginated",
-      spread: "none",
-      width: "100%",
-      height: "100%",
-    });
-    rendRef.current = rendition;
-
-    rendition.themes.register("theme", THEMES[theme]);
-    rendition.themes.select("theme");
-    rendition.themes.fontSize(`${fontSize}px`);
-
-    rendition.display().catch((e: any) => {
-      setError(`无法打开书籍：${e?.message ?? e}`);
-    });
-
-    // Load TOC after navigation data is ready
-    (book as any).loaded.navigation.then((nav: any) => {
-      if (nav?.toc) setToc(nav.toc);
-    });
-
-    rendition.on("relocated", (location: any) => {
-      if (!location?.start) return;
-
-      // Track active TOC entry
-      if (location.start.href) {
-        setActiveHrefBase(hrefBase(location.start.href));
-      }
-
-      // Update progress
-      if (location.start.cfi) {
-        book.locations.generate(1200).then(() => {
-          const pct = book.locations.percentageFromCfi(location.start.cfi) ?? 0;
-          setProgress(Math.round(pct * 100));
-        });
-      }
-    });
-
-    return () => {
-      if (hideTimer.current) clearTimeout(hideTimer.current);
-      book.destroy();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookId]);
-
-  // Theme change
-  useEffect(() => {
-    const rend = rendRef.current;
-    if (!rend) return;
-    rend.themes.register("theme", THEMES[theme]);
-    rend.themes.select("theme");
-  }, [theme]);
-
-  // Font size change
-  useEffect(() => {
-    rendRef.current?.themes.fontSize(`${fontSize}px`);
-  }, [fontSize]);
-
-  // Keyboard navigation
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!rendRef.current) return;
-      if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
-        e.preventDefault();
-        rendRef.current.next();
-      }
-      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-        e.preventDefault();
-        rendRef.current.prev();
-      }
-      if (e.key === "Escape") {
-        setShowToc(false);
-        setShowSettings(false);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+  const handlePrev = useCallback(() => {
+    setPendingAnchor("");
+    setSpineIndex((i) => Math.max(i - 1, 0));
   }, []);
 
-  const handlePrev = useCallback(() => rendRef.current?.prev(), []);
-  const handleNext = useCallback(() => rendRef.current?.next(), []);
+  const handleNext = useCallback(() => {
+    setPendingAnchor("");
+    setSpineIndex((i) => Math.min(i + 1, (contents?.spine.length ?? 1) - 1));
+  }, [contents]);
 
   const navigateTo = useCallback((href: string) => {
-    rendRef.current?.display(href);
+    const [hrefBase, anchor] = href.split("#");
+    setContents((prev) => {
+      if (!prev) return prev;
+      const idx = prev.spine.findIndex((s) => s.href === hrefBase);
+      if (idx >= 0) {
+        setPendingAnchor(anchor ?? "");
+        setSpineIndex(idx);
+      }
+      return prev;
+    });
     setShowToc(false);
   }, []);
 
-  const toggleToc = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setShowToc((s) => !s);
-    setShowSettings(false);
-  }, []);
-
-  const toggleSettings = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setShowSettings((s) => !s);
-    setShowToc(false);
-  }, []);
+  const currentItem = contents?.spine[spineIndex];
+  const iframeSrc = currentItem
+    ? `epub://localhost/${bookId}/${currentItem.href}${pendingAnchor ? `#${pendingAnchor}` : ""}`
+    : undefined;
+  const progress =
+    contents && contents.spine.length > 1
+      ? Math.round((spineIndex / (contents.spine.length - 1)) * 100)
+      : 0;
 
   return (
     <div
@@ -236,34 +220,33 @@ export default function Reader({ bookId, bookTitle }: Props) {
       style={{ background: BG[theme] }}
       onMouseMove={bumpUI}
     >
-      {/* Top overlay bar */}
+      {/* Drag strip — above iframe so startDragging() works */}
       <div
-        className={`reader-topbar ${showUI ? "visible" : ""}`}
-        data-tauri-drag-region
-      >
-        <button
-          className="reader-close-btn"
-          onClick={() => window.close()}
-          title="关闭"
-        >
+        className="reader-drag-strip"
+        onMouseDown={(e) => {
+          if (e.button === 0) getCurrentWindow().startDragging();
+        }}
+      />
+
+      {/* Top bar */}
+      <div className={`reader-topbar ${showUI ? "visible" : ""}`} data-tauri-drag-region>
+        <button className="reader-close-btn" onClick={() => window.close()} title="关闭">
           ‹
         </button>
-
-        {toc.length > 0 && (
+        {(contents?.toc.length ?? 0) > 0 && (
           <button
             className={`reader-toc-btn ${showToc ? "active" : ""}`}
-            onClick={toggleToc}
+            onClick={(e) => { e.stopPropagation(); setShowToc((s) => !s); setShowSettings(false); }}
             title="目录"
           >
             <TocIcon />
           </button>
         )}
-
-        <span className="reader-book-title" data-tauri-drag-region>
-          {bookTitle}
-        </span>
-
-        <button className="reader-aa-btn" onClick={toggleSettings}>
+        <span className="reader-book-title" data-tauri-drag-region>{bookTitle}</span>
+        <button
+          className="reader-aa-btn"
+          onClick={(e) => { e.stopPropagation(); setShowSettings((s) => !s); setShowToc(false); }}
+        >
           Aa
         </button>
       </div>
@@ -272,45 +255,30 @@ export default function Reader({ bookId, bookTitle }: Props) {
       <div className={`toc-panel toc-panel--${theme} ${showToc ? "open" : ""}`}>
         <div className="toc-header">目录</div>
         <div className="toc-list">
-          {toc.map((item) => (
+          {contents?.toc.map((item, i) => (
             <TocRow
-              key={item.id || item.href}
+              key={i}
               item={item}
               depth={0}
-              activeBase={activeHrefBase}
+              activeHref={currentItem?.href ?? ""}
               onNavigate={navigateTo}
             />
           ))}
         </div>
       </div>
-      {showToc && (
-        <div className="toc-backdrop" onClick={() => setShowToc(false)} />
-      )}
+      {showToc && <div className="toc-backdrop" onClick={() => setShowToc(false)} />}
 
       {/* Settings panel */}
       {showSettings && (
         <>
-          <div
-            className="settings-backdrop"
-            onClick={() => setShowSettings(false)}
-          />
+          <div className="settings-backdrop" onClick={() => setShowSettings(false)} />
           <div className={`reader-settings reader-settings--${theme}`}>
             <div className="settings-row">
               <span className="settings-label">字体大小</span>
               <div className="settings-stepper">
-                <button
-                  onClick={() => setFontSize((s) => Math.max(12, s - 2))}
-                  className="stepper-btn"
-                >
-                  A−
-                </button>
+                <button onClick={() => setFontSize((s) => Math.max(12, s - 2))} className="stepper-btn">A−</button>
                 <span className="stepper-val">{fontSize}</span>
-                <button
-                  onClick={() => setFontSize((s) => Math.min(36, s + 2))}
-                  className="stepper-btn"
-                >
-                  A+
-                </button>
+                <button onClick={() => setFontSize((s) => Math.min(36, s + 2))} className="stepper-btn">A+</button>
               </div>
             </div>
             <div className="settings-divider" />
@@ -320,13 +288,9 @@ export default function Reader({ bookId, bookTitle }: Props) {
                 {(["light", "sepia", "dark"] as Theme[]).map((t) => (
                   <button
                     key={t}
-                    className={`theme-chip theme-chip--${t} ${
-                      theme === t ? "active" : ""
-                    }`}
+                    className={`theme-chip theme-chip--${t} ${theme === t ? "active" : ""}`}
                     onClick={() => setTheme(t)}
-                    title={
-                      t === "light" ? "白色" : t === "sepia" ? "米色" : "深色"
-                    }
+                    title={t === "light" ? "白色" : t === "sepia" ? "米色" : "深色"}
                   />
                 ))}
               </div>
@@ -335,30 +299,37 @@ export default function Reader({ bookId, bookTitle }: Props) {
         </>
       )}
 
-      {/* Page nav — left zone */}
+      {/* Prev chapter */}
       <button
         className={`page-nav page-nav--prev ${showUI ? "visible" : ""}`}
         onClick={handlePrev}
-        aria-label="上一页"
-      >
-        ‹
-      </button>
+        aria-label="上一章"
+        disabled={spineIndex === 0}
+      >‹</button>
 
-      {/* epub.js render target */}
+      {/* Chapter iframe */}
       <div className="reader-stage">
-        <div ref={containerRef} className="reader-content" />
+        {loading && <div className="reader-loading">加载中…</div>}
+        {iframeSrc && (
+          <iframe
+            ref={iframeRef}
+            src={iframeSrc}
+            onLoad={applyTheme}
+            className="reader-frame"
+            title={bookTitle}
+          />
+        )}
       </div>
 
-      {/* Page nav — right zone */}
+      {/* Next chapter */}
       <button
         className={`page-nav page-nav--next ${showUI ? "visible" : ""}`}
         onClick={handleNext}
-        aria-label="下一页"
-      >
-        ›
-      </button>
+        aria-label="下一章"
+        disabled={spineIndex === (contents?.spine.length ?? 1) - 1}
+      >›</button>
 
-      {/* Bottom bar */}
+      {/* Progress bar */}
       <div className={`reader-bottombar ${showUI ? "visible" : ""}`}>
         <div className="progress-track">
           <div className="progress-fill" style={{ width: `${progress}%` }} />

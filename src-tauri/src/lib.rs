@@ -3,6 +3,7 @@ use roxmltree::Document;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Read;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
@@ -198,20 +199,319 @@ fn scan_folder_for_epubs(folder: &str, source_folder: &str) -> Vec<Book> {
     books
 }
 
-/// Extracts the book UUID from an epub:// URI.
-/// e.g. `epub://localhost/abc-123/book.epub` → `"abc-123"`
-fn extract_book_id_from_uri(uri: &str) -> &str {
-    uri.split("://")
+// ── Spine / TOC types ────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Clone)]
+pub struct SpineItem {
+    pub href: String,
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct TocEntry {
+    pub label: String,
+    pub href: String,
+    pub children: Vec<TocEntry>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct BookContents {
+    pub spine: Vec<SpineItem>,
+    pub toc: Vec<TocEntry>,
+}
+
+// ── Path helpers ─────────────────────────────────────────────────────────────
+
+/// Resolve `..` and `.` segments in a slash-delimited path.
+fn normalize_path(path: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            ".." => { out.pop(); }
+            "." | "" => {}
+            p => out.push(p),
+        }
+    }
+    out.join("/")
+}
+
+/// Remove `<!DOCTYPE ...>` declarations so roxmltree can parse XHTML nav files.
+fn strip_doctype(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(start) = rest.find("<!DOCTYPE").or_else(|| rest.find("<!doctype")) {
+        result.push_str(&rest[..start]);
+        rest = &rest[start..];
+        if let Some(end) = rest.find('>') {
+            rest = &rest[end + 1..];
+        } else {
+            break;
+        }
+    }
+    result.push_str(rest);
+    result
+}
+
+// ── EPUB3 nav.xhtml TOC parser ────────────────────────────────────────────────
+
+fn parse_nav_ol<'d>(ol: roxmltree::Node<'d, 'd>, nav_dir: &str) -> Vec<TocEntry> {
+    ol.children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "li")
+        .filter_map(|li| {
+            let a = li.children().find(|n| n.is_element() && n.tag_name().name() == "a")?;
+            let label = a.text().unwrap_or("").trim().to_string();
+            if label.is_empty() {
+                return None;
+            }
+            let raw = a.attribute("href").unwrap_or("");
+            let (raw_path, anchor) = raw.split_once('#').unwrap_or((raw, ""));
+            let full = normalize_path(&format!("{}{}", nav_dir, raw_path));
+            let href = if anchor.is_empty() { full } else { format!("{}#{}", full, anchor) };
+            let children = li
+                .children()
+                .find(|n| n.is_element() && n.tag_name().name() == "ol")
+                .map(|child_ol| parse_nav_ol(child_ol, nav_dir))
+                .unwrap_or_default();
+            Some(TocEntry { label, href, children })
+        })
+        .collect()
+}
+
+fn parse_nav_toc(archive: &mut ZipArchive<fs::File>, nav_path: &str) -> Option<Vec<TocEntry>> {
+    let mut entry = archive.by_name(nav_path).ok()?;
+    let mut content = String::new();
+    entry.read_to_string(&mut content).ok()?;
+    drop(entry);
+
+    let content = strip_doctype(&content);
+    let doc = Document::parse(&content).ok()?;
+    let nav_dir = Path::new(nav_path)
+        .parent()
+        .map(|p| {
+            let s = p.to_string_lossy();
+            if s.is_empty() { String::new() } else { format!("{}/", s) }
+        })
+        .unwrap_or_default();
+
+    let nav = doc.descendants().find(|n| {
+        n.is_element()
+            && n.tag_name().name() == "nav"
+            && n.attributes().any(|a| a.name() == "type" && a.value().contains("toc"))
+    })?;
+    let ol = nav.children().find(|n| n.is_element() && n.tag_name().name() == "ol")?;
+    Some(parse_nav_ol(ol, &nav_dir))
+}
+
+// ── EPUB2 toc.ncx TOC parser ──────────────────────────────────────────────────
+
+fn parse_nav_points<'d>(parent: roxmltree::Node<'d, 'd>, ncx_dir: &str) -> Vec<TocEntry> {
+    parent
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "navPoint")
+        .filter_map(|np| {
+            let label = np
+                .descendants()
+                .find(|n| n.is_element() && n.tag_name().name() == "text")
+                .and_then(|n| n.text())
+                .map(|t| t.trim().to_string())
+                .unwrap_or_default();
+            if label.is_empty() {
+                return None;
+            }
+            let raw = np
+                .children()
+                .find(|n| n.is_element() && n.tag_name().name() == "content")
+                .and_then(|n| n.attribute("src"))
+                .unwrap_or("");
+            let (raw_path, anchor) = raw.split_once('#').unwrap_or((raw, ""));
+            let full = normalize_path(&format!("{}{}", ncx_dir, raw_path));
+            let href = if anchor.is_empty() { full } else { format!("{}#{}", full, anchor) };
+            let children = parse_nav_points(np, ncx_dir);
+            Some(TocEntry { label, href, children })
+        })
+        .collect()
+}
+
+fn parse_ncx_toc(archive: &mut ZipArchive<fs::File>, ncx_path: &str) -> Option<Vec<TocEntry>> {
+    let mut entry = archive.by_name(ncx_path).ok()?;
+    let mut content = String::new();
+    entry.read_to_string(&mut content).ok()?;
+    drop(entry);
+
+    let doc = Document::parse(&content).ok()?;
+    let ncx_dir = Path::new(ncx_path)
+        .parent()
+        .map(|p| {
+            let s = p.to_string_lossy();
+            if s.is_empty() { String::new() } else { format!("{}/", s) }
+        })
+        .unwrap_or_default();
+
+    let nav_map = doc.descendants().find(|n| n.is_element() && n.tag_name().name() == "navMap")?;
+    Some(parse_nav_points(nav_map, &ncx_dir))
+}
+
+// ── Main EPUB contents parser ─────────────────────────────────────────────────
+
+fn parse_epub_contents(epub_path: &Path) -> Option<BookContents> {
+    let file = fs::File::open(epub_path).ok()?;
+    let mut archive = ZipArchive::new(file).ok()?;
+
+    let opf_path = {
+        let mut entry = archive.by_name("META-INF/container.xml").ok()?;
+        let mut content = String::new();
+        entry.read_to_string(&mut content).ok()?;
+        let doc = Document::parse(&content).ok()?;
+        doc.descendants()
+            .find(|n| n.tag_name().name() == "rootfile")
+            .and_then(|n| n.attribute("full-path"))
+            .map(|s| s.to_string())?
+    };
+
+    let opf_dir = Path::new(&opf_path)
+        .parent()
+        .map(|p| {
+            let s = p.to_string_lossy();
+            if s.is_empty() { String::new() } else { format!("{}/", s) }
+        })
+        .unwrap_or_default();
+
+    let opf_content = {
+        let mut entry = archive.by_name(&opf_path).ok()?;
+        let mut content = String::new();
+        entry.read_to_string(&mut content).ok()?;
+        content
+    };
+
+    let doc = Document::parse(&opf_content).ok()?;
+
+    // manifest: id → (full_href, media_type, properties)
+    let manifest: HashMap<String, (String, String, String)> = doc
+        .descendants()
+        .filter(|n| n.tag_name().name() == "item")
+        .filter_map(|n| {
+            let id = n.attribute("id")?;
+            let href = n.attribute("href").unwrap_or("");
+            let mt = n.attribute("media-type").unwrap_or("");
+            let props = n.attribute("properties").unwrap_or("");
+            let full = normalize_path(&format!("{}{}", opf_dir, href));
+            Some((id.to_string(), (full, mt.to_string(), props.to_string())))
+        })
+        .collect();
+
+    // spine: ordered linear items
+    let spine: Vec<SpineItem> = doc
+        .descendants()
+        .filter(|n| n.tag_name().name() == "itemref")
+        .filter(|n| n.attribute("linear") != Some("no"))
+        .filter_map(|n| {
+            let idref = n.attribute("idref")?;
+            let (href, _, _) = manifest.get(idref)?;
+            Some(SpineItem { href: href.clone(), id: idref.to_string() })
+        })
+        .collect();
+
+    // TOC: EPUB3 nav.xhtml preferred, fall back to EPUB2 toc.ncx
+    let nav_path = manifest
+        .values()
+        .find(|(_, _, props)| props.split_whitespace().any(|p| p == "nav"))
+        .map(|(href, _, _)| href.clone());
+
+    let toc = if let Some(path) = nav_path {
+        parse_nav_toc(&mut archive, &path).unwrap_or_default()
+    } else {
+        let ncx_path = manifest
+            .values()
+            .find(|(_, mt, _)| mt == "application/x-dtbncx+xml")
+            .map(|(href, _, _)| href.clone());
+        ncx_path
+            .and_then(|path| parse_ncx_toc(&mut archive, &path))
+            .unwrap_or_default()
+    };
+
+    Some(BookContents { spine, toc })
+}
+
+// ── Script injected into every EPUB HTML chapter ──────────────────────────────
+
+const READER_SCRIPT: &str = r#"<script>
+(function(){
+  document.addEventListener('click', function(e) {
+    var a = e.target;
+    while (a && a.tagName !== 'A') a = a.parentElement;
+    if (!a) return;
+    var href = a.getAttribute('href');
+    if (!href || href.charAt(0) === '#') return;
+    e.preventDefault();
+    e.stopPropagation();
+    window.parent.postMessage({type:'epub-navigate', href: a.href}, '*');
+  }, true);
+  window.addEventListener('message', function(e) {
+    if (!e.data || e.data.type !== 'epub-theme') return;
+    var el = document.getElementById('__reader_css__');
+    if (!el) {
+      el = document.createElement('style');
+      el.id = '__reader_css__';
+      var head = document.head || document.getElementsByTagName('head')[0];
+      if (head) head.insertBefore(el, head.firstChild);
+    }
+    el.textContent = e.data.css;
+  });
+  window.parent.postMessage({type:'epub-ready'}, '*');
+})();
+</script>"#;
+
+fn inject_reader_script(buf: Vec<u8>) -> Vec<u8> {
+    let html = match String::from_utf8(buf) {
+        Ok(s) => s,
+        Err(e) => return e.into_bytes(),
+    };
+    let lower = html.to_lowercase();
+    let pos = lower
+        .rfind("</body>")
+        .or_else(|| lower.rfind("</html>"))
+        .unwrap_or(html.len());
+    format!("{}{}{}", &html[..pos], READER_SCRIPT, &html[pos..]).into_bytes()
+}
+
+/// Splits `epub://localhost/{book_id}/{file_path}` into `(book_id, file_path)`.
+/// `file_path` is empty when no path after the id, or equals "book.epub" for the binary.
+fn parse_epub_uri(uri: &str) -> (&str, &str) {
+    let after_host = uri
+        .split("://")
         .nth(1)
         .unwrap_or("")
         .trim_start_matches("localhost/")
-        .trim_start_matches('/')
-        .split(['/', '?'])
-        .next()
-        .unwrap_or("")
+        .trim_start_matches('/');
+    // Strip query string before splitting on path separator
+    let path = after_host.split('?').next().unwrap_or(after_host);
+    match path.find('/') {
+        Some(idx) => (&path[..idx], path[idx + 1..].trim_start_matches('/')),
+        None => (path, ""),
+    }
 }
 
-// epub:// protocol handler — serves the raw epub file so epub.js can extract it in the browser
+fn mime_type_for(path: &str) -> &'static str {
+    let p = path.to_lowercase();
+    if p.ends_with(".css") { "text/css" }
+    else if p.ends_with(".xhtml") || p.ends_with(".html") || p.ends_with(".htm") { "text/html; charset=utf-8" }
+    else if p.ends_with(".jpg") || p.ends_with(".jpeg") { "image/jpeg" }
+    else if p.ends_with(".png") { "image/png" }
+    else if p.ends_with(".gif") { "image/gif" }
+    else if p.ends_with(".svg") { "image/svg+xml" }
+    else if p.ends_with(".opf") { "application/oebps-package+xml" }
+    else if p.ends_with(".ncx") { "application/x-dtbncx+xml" }
+    else if p.ends_with(".xml") { "application/xml" }
+    else if p.ends_with(".ttf") { "font/ttf" }
+    else if p.ends_with(".otf") { "font/otf" }
+    else if p.ends_with(".woff") { "font/woff" }
+    else if p.ends_with(".woff2") { "font/woff2" }
+    else { "application/octet-stream" }
+}
+
+// epub:// protocol handler — serves either the full EPUB binary or individual files within it.
+// epub://localhost/{id}/book.epub  → full binary (epub.js binary mode)
+// epub://localhost/{id}/OEBPS/Styles/style.css → single file from the ZIP with correct MIME
 fn serve_epub_protocol(
     ctx: tauri::UriSchemeContext<'_, impl tauri::Runtime>,
     request: tauri::http::Request<Vec<u8>>,
@@ -225,9 +525,8 @@ fn serve_epub_protocol(
             .unwrap()
     };
 
-    // URL: epub://localhost/{book_id}/book.epub
     let uri = request.uri().to_string();
-    let book_id = extract_book_id_from_uri(&uri).to_string();
+    let (book_id, file_path) = parse_epub_uri(&uri);
 
     if book_id.is_empty() {
         return err(400, "missing book id");
@@ -238,15 +537,50 @@ fn serve_epub_protocol(
         return err(404, "book not found");
     };
 
-    match fs::read(&book.path) {
-        Ok(bytes) => tauri::http::Response::builder()
-            .status(200)
-            .header("Content-Type", "application/epub+zip")
-            .header("Access-Control-Allow-Origin", "*")
-            .body(bytes)
-            .unwrap(),
-        Err(_) => err(500, "failed to read epub"),
+    // No path (or the synthetic "book.epub") → serve full binary so epub.js can open it
+    if file_path.is_empty() || file_path == "book.epub" {
+        return match fs::read(&book.path) {
+            Ok(bytes) => tauri::http::Response::builder()
+                .status(200)
+                .header("Content-Type", "application/epub+zip")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(bytes)
+                .unwrap(),
+            Err(_) => err(500, "failed to read epub"),
+        };
     }
+
+    // Specific path → extract that file from the ZIP and serve it with correct MIME type
+    let file = match fs::File::open(&book.path) {
+        Ok(f) => f,
+        Err(_) => return err(500, "failed to open epub"),
+    };
+    let mut archive = match ZipArchive::new(file) {
+        Ok(a) => a,
+        Err(_) => return err(500, "failed to parse epub"),
+    };
+    let mut entry = match archive.by_name(file_path) {
+        Ok(e) => e,
+        Err(_) => return err(404, "file not found in epub"),
+    };
+    let mut buf = Vec::new();
+    if entry.read_to_end(&mut buf).is_err() {
+        return err(500, "failed to read file from epub");
+    }
+
+    let mime = mime_type_for(file_path);
+    let body = if mime.starts_with("text/html") {
+        inject_reader_script(buf)
+    } else {
+        buf
+    };
+
+    tauri::http::Response::builder()
+        .status(200)
+        .header("Content-Type", mime)
+        .header("Access-Control-Allow-Origin", "*")
+        .body(body)
+        .unwrap()
 }
 
 #[tauri::command]
@@ -315,6 +649,17 @@ async fn refresh_folder(app: AppHandle, folder_path: String) -> Result<Library, 
 }
 
 #[tauri::command]
+async fn get_book_contents(app: AppHandle, book_id: String) -> Result<BookContents, String> {
+    let library = load_library(&app);
+    let book = library
+        .books
+        .iter()
+        .find(|b| b.id == book_id)
+        .ok_or_else(|| "book not found".to_string())?;
+    parse_epub_contents(Path::new(&book.path)).ok_or_else(|| "failed to parse epub".to_string())
+}
+
+#[tauri::command]
 async fn open_reader_window(
     app: AppHandle,
     book_id: String,
@@ -365,6 +710,7 @@ pub fn run() {
             remove_folder,
             refresh_folder,
             open_reader_window,
+            get_book_contents,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -442,39 +788,40 @@ mod tests {
 
     #[test]
     fn book_id_extracted_with_epub_suffix() {
-        assert_eq!(
-            extract_book_id_from_uri("epub://localhost/abc-123/book.epub"),
-            "abc-123"
-        );
+        assert_eq!(parse_epub_uri("epub://localhost/abc-123/book.epub").0, "abc-123");
     }
 
     #[test]
     fn book_id_extracted_bare() {
-        assert_eq!(
-            extract_book_id_from_uri("epub://localhost/abc-123"),
-            "abc-123"
-        );
+        assert_eq!(parse_epub_uri("epub://localhost/abc-123").0, "abc-123");
     }
 
     #[test]
     fn book_id_extracted_trailing_slash() {
-        assert_eq!(
-            extract_book_id_from_uri("epub://localhost/abc-123/"),
-            "abc-123"
-        );
+        assert_eq!(parse_epub_uri("epub://localhost/abc-123/").0, "abc-123");
     }
 
     #[test]
     fn book_id_empty_when_root_only() {
-        assert_eq!(extract_book_id_from_uri("epub://localhost/"), "");
+        assert_eq!(parse_epub_uri("epub://localhost/").0, "");
+    }
+
+    #[test]
+    fn file_path_extracted() {
+        assert_eq!(
+            parse_epub_uri("epub://localhost/abc-123/OEBPS/Styles/style.css").1,
+            "OEBPS/Styles/style.css"
+        );
+    }
+
+    #[test]
+    fn normalize_path_resolves_dotdot() {
+        assert_eq!(normalize_path("OEBPS/Text/../Styles/style.css"), "OEBPS/Styles/style.css");
     }
 
     #[test]
     fn book_id_query_param_ignored() {
-        assert_eq!(
-            extract_book_id_from_uri("epub://localhost/abc-123?v=1"),
-            "abc-123"
-        );
+        assert_eq!(parse_epub_uri("epub://localhost/abc-123?v=1").0, "abc-123");
     }
 
     // ── Library serialization ─────────────────────────────────────────────────

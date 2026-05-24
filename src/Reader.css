@@ -12,23 +12,42 @@
   user-select: none;
 }
 
-/* ── epub.js stage ────────────────────────────────────────── */
-.reader-stage {
-  /* 52 px top (titlebar) + 40 px bottom (progress bar) */
-  position: absolute;
-  top: 52px;
-  left: 60px;   /* room for nav arrows */
-  right: 60px;
-  bottom: 40px;
-  display: flex;
-  align-items: stretch;
+/* ── Persistent drag strip ────────────────────────────────── */
+.reader-drag-strip {
+  position: fixed;
+  top: 0;
+  left: 80px; /* clear macOS traffic lights */
+  right: 0;
+  height: 52px;
+  z-index: 10; /* above content, below topbar buttons (z-index 30) */
 }
 
-.reader-content {
-  flex: 1;
-  /* epub.js measures this div for pagination */
-  max-width: 740px;
-  margin: 0 auto;
+/* ── Reader stage ─────────────────────────────────────────── */
+.reader-stage {
+  position: absolute;
+  top: 52px;
+  left: 60px;
+  right: 60px;
+  bottom: 40px;
+}
+
+.reader-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+}
+
+.reader-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  opacity: 0.4;
 }
 
 /* ── Top bar ──────────────────────────────────────────────── */
@@ -435,6 +454,15 @@
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  flex: 1;
+}
+
+.toc-page {
+  font-size: 12px;
+  opacity: 0.35;
+  flex-shrink: 0;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Error overlay ────────────────────────────────────────── */
