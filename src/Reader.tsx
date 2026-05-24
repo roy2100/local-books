@@ -76,7 +76,9 @@ export default function Reader({ bookId, bookTitle }: Props) {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const book = ePub(`epub://localhost/${bookId}`);
+    // Append .epub so epub.js's determineType() treats this as a binary download
+    // (without extension it falls back to "directory" mode and makes individual file requests)
+    const book = ePub(`epub://localhost/${bookId}/book.epub`);
     bookRef.current = book;
 
     const rendition = book.renderTo(containerRef.current, {
