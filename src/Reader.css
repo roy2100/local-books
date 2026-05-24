@@ -42,6 +42,12 @@
   position: relative;
 }
 
+.foliate-reader-view {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .reader-loading {
   position: absolute;
   inset: 0;

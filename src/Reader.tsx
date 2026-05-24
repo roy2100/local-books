@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import ePub from "epubjs";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ALargeSmall,
@@ -7,9 +6,10 @@ import {
   ChevronRight,
   TableOfContents,
 } from "lucide-react";
+// @ts-ignore foliate-js ships plain JavaScript modules without TypeScript declarations.
+import "../vendor/foliate-js/view.js";
+import { BG, makeThemeCSS, type Theme } from "./readerTheme";
 import "./Reader.css";
-
-export type Theme = "light" | "sepia" | "dark";
 
 interface NavItem {
   id: string;
@@ -24,65 +24,40 @@ interface Props {
   bookTitle: string;
 }
 
-const BG: Record<Theme, string> = {
-  light: "#faf9f6",
-  sepia: "#f6f0e6",
-  dark: "#1c1c1e",
-};
+interface FoliateRenderer extends HTMLElement {
+  setStyles?: (styles: string) => void;
+  prev?: (distance?: number) => Promise<void>;
+  next?: (distance?: number) => Promise<void>;
+}
 
-export function makeThemeCSS(theme: Theme, fontSize: number): string {
-  const text = { light: "#1a1a1a", sepia: "#3b2d1f", dark: "#dcdcdc" }[theme];
-  const link = { light: "#1a73e8", sepia: "#7a5c00", dark: "#7eb8f7" }[theme];
-  const scrollThumb = {
-    light: "rgba(0,0,0,0.18)",
-    sepia: "rgba(80,50,20,0.2)",
-    dark: "rgba(255,255,255,0.18)",
-  }[theme];
-  const scrollThumbHover = {
-    light: "rgba(0,0,0,0.32)",
-    sepia: "rgba(80,50,20,0.36)",
-    dark: "rgba(255,255,255,0.32)",
-  }[theme];
-  return `
-    html, body { background: ${BG[theme]} !important; color: ${text} !important; }
-    body {
-      font-size: ${fontSize}px !important;
-      font-family: -apple-system, 'PingFang SC', 'Noto Sans CJK SC', Georgia, serif !important;
-      line-height: 1.85 !important;
-      max-width: 700px !important;
-      margin: 0 auto !important;
-      padding: 48px 32px 80px !important;
-      word-break: break-word !important;
-    }
-    a { color: inherit !important; }
-    a[epub\\:type~="noteref"],
-    a[epub\\:type~="footnote"],
-    a[role~="doc-noteref"],
-    a[role~="doc-footnote"],
-    a.noteref,
-    a.footnote,
-    a.ref_mi,
-    a[class*="noteref" i],
-    a[class*="footnote" i],
-    a[href^="#fn"],
-    a[href^="#footnote"],
-    a[href*="#fn"],
-    a[href*="#footnote"],
-    a[href*="footnote"],
-    a[href*="noteref"] {
-      color: ${link} !important;
-    }
-    img { max-width: 100% !important; height: auto !important; }
-    * { box-sizing: border-box; }
-    ::-webkit-scrollbar { width: 5px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb {
-      background: ${scrollThumb};
-      border-radius: 3px;
-      transition: background 0.2s;
-    }
-    ::-webkit-scrollbar-thumb:hover { background: ${scrollThumbHover}; }
-  `;
+interface FoliateBook {
+  toc?: NavItem[];
+}
+
+interface FoliateViewElement extends HTMLElement {
+  book?: FoliateBook;
+  renderer?: FoliateRenderer;
+  open: (book: string | Blob | object) => Promise<void>;
+  close: () => void;
+  goTo: (target: string | number | object) => Promise<unknown>;
+  goLeft: () => Promise<void>;
+  goRight: () => Promise<void>;
+  prev: (distance?: number) => Promise<void>;
+  next: (distance?: number) => Promise<void>;
+}
+
+interface FoliateRelocateDetail {
+  fraction?: number;
+  location?: { current?: number; total?: number };
+  tocItem?: { href?: string; label?: string };
+}
+
+function applyFoliateTheme(
+  view: FoliateViewElement | null,
+  theme: Theme,
+  fontSize: number,
+) {
+  view?.renderer?.setStyles?.(makeThemeCSS(theme, fontSize));
 }
 
 function TocRow({
@@ -120,11 +95,6 @@ function TocRow({
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Book = ReturnType<typeof ePub>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Rendition = ReturnType<Book["renderTo"]>;
-
 export default function Reader({ bookId, bookTitle }: Props) {
   const [toc, setToc] = useState<NavItem[]>([]);
   const [currentHref, setCurrentHref] = useState("");
@@ -138,17 +108,16 @@ export default function Reader({ bookId, bookTitle }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const bookRef = useRef<Book | null>(null);
-  const renditionRef = useRef<Rendition | null>(null);
-  const prevBlobUrlRef = useRef<string>("");
+  const viewRef = useRef<FoliateViewElement | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  // themeRef 让 init effect 读取最新主题，同时不把 theme/fontSize 加入 [bookId] deps
   const themeRef = useRef({ theme, fontSize });
   useEffect(() => { themeRef.current = { theme, fontSize }; }, [theme, fontSize]);
 
-  // epub.js initialization
+  // foliate-js initialization
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
+
     setLoading(true);
     setError(null);
     setToc([]);
@@ -157,67 +126,59 @@ export default function Reader({ bookId, bookTitle }: Props) {
 
     let cancelled = false;
 
-    const book = ePub(`epub://localhost/${bookId}/book.epub`);
-    bookRef.current = book;
+    const view = document.createElement("foliate-view") as FoliateViewElement;
+    view.className = "foliate-reader-view";
+    container.replaceChildren(view);
+    viewRef.current = view;
 
-    const rendition = book.renderTo(containerRef.current, {
-      flow: "scrolled-continuous",
-      width: "100%",
-      height: "100%",
-    });
-    renditionRef.current = rendition;
+    const handleRelocate = (event: Event) => {
+      const detail = (event as CustomEvent<FoliateRelocateDetail>).detail;
+      if (typeof detail.fraction === "number") {
+        setProgress(Math.max(0, Math.min(100, Math.round(detail.fraction * 100))));
+      } else if (
+        typeof detail.location?.current === "number" &&
+        typeof detail.location?.total === "number" &&
+        detail.location.total > 0
+      ) {
+        setProgress(Math.round((detail.location.current / detail.location.total) * 100));
+      }
+      setCurrentHref(detail.tocItem?.href ?? "");
+    };
 
-    // 立即应用初始主题（applyTheme 的 useEffect 触发时 renditionRef 可能还是 null）
-    const { theme: t0, fontSize: fs0 } = themeRef.current;
-    const initCss = makeThemeCSS(t0, fs0);
-    const initBlob = new Blob([initCss], { type: "text/css" });
-    const initUrl = URL.createObjectURL(initBlob);
-    prevBlobUrlRef.current = initUrl;
-    rendition.themes.register("reader", initUrl);
-    rendition.themes.select("reader");
+    view.addEventListener("relocate", handleRelocate);
 
-    rendition.display().then(() => {
-      if (!cancelled) setLoading(false);
-    }).catch((e: unknown) => {
-      if (!cancelled) { setError(String(e)); setLoading(false); }
-    });
+    const openBook = async () => {
+      try {
+        await view.open(`epub://localhost/${bookId}/book.epub`);
+        if (cancelled) return;
+        view.renderer?.setAttribute("flow", "scrolled");
+        const { theme: nextTheme, fontSize: nextFontSize } = themeRef.current;
+        applyFoliateTheme(view, nextTheme, nextFontSize);
+        setToc(view.book?.toc ?? []);
+        await view.next();
+        if (!cancelled) setLoading(false);
+      } catch (e) {
+        if (!cancelled) {
+          setError(`无法打开书籍：${String(e)}`);
+          setLoading(false);
+        }
+      }
+    };
 
-    book.ready.then(async () => {
-      if (cancelled) return;
-      setToc(book.navigation.toc as NavItem[]);
-      await book.locations.generate(1600);
-    }).catch(() => {
-      // TOC/locations 失败不影响阅读，忽略
-    });
-
-    rendition.on("relocated", (loc: { start: { href: string; percentage: number; cfi: string } }) => {
-      setCurrentHref(loc.start.href);
-      setProgress(Math.round((loc.start.percentage ?? 0) * 100));
-    });
-
-    book.on("openFailed", (e: unknown) => {
-      if (!cancelled) { setError(`无法打开书籍：${String(e)}`); setLoading(false); }
-    });
+    void openBook();
 
     return () => {
       cancelled = true;
-      if (prevBlobUrlRef.current) URL.revokeObjectURL(prevBlobUrlRef.current);
-      book.destroy();
-      bookRef.current = null;
-      renditionRef.current = null;
+      view.removeEventListener("relocate", handleRelocate);
+      view.close();
+      view.remove();
+      if (viewRef.current === view) viewRef.current = null;
     };
   }, [bookId]);
 
-  // Apply theme CSS via rendition.themes
+  // Apply theme CSS through foliate-js renderer styles.
   const applyTheme = useCallback(() => {
-    if (!renditionRef.current) return;
-    if (prevBlobUrlRef.current) URL.revokeObjectURL(prevBlobUrlRef.current);
-    const css = makeThemeCSS(theme, fontSize);
-    const blob = new Blob([css], { type: "text/css" });
-    const url = URL.createObjectURL(blob);
-    prevBlobUrlRef.current = url;
-    renditionRef.current.themes.register("reader", url);
-    renditionRef.current.themes.select("reader");
+    applyFoliateTheme(viewRef.current, theme, fontSize);
   }, [theme, fontSize]);
 
   useEffect(() => { applyTheme(); }, [theme, fontSize, applyTheme]);
@@ -227,11 +188,11 @@ export default function Reader({ bookId, bookTitle }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
         e.preventDefault();
-        renditionRef.current?.next();
+        void viewRef.current?.goRight();
       }
       if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
         e.preventDefault();
-        renditionRef.current?.prev();
+        void viewRef.current?.goLeft();
       }
       if (e.key === "Escape") { setShowToc(false); setShowSettings(false); }
     };
@@ -256,15 +217,15 @@ export default function Reader({ bookId, bookTitle }: Props) {
   useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current); }, []);
 
   const handlePrev = useCallback(() => {
-    renditionRef.current?.prev();
+    void viewRef.current?.goLeft();
   }, []);
 
   const handleNext = useCallback(() => {
-    renditionRef.current?.next();
+    void viewRef.current?.goRight();
   }, []);
 
   const navigateTo = useCallback((href: string) => {
-    renditionRef.current?.display(href);
+    viewRef.current?.goTo(href).catch(() => {});
     setShowToc(false);
   }, []);
 

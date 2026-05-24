@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeThemeCSS } from "../Reader";
+import { makeThemeCSS } from "../readerTheme";
 
 describe("makeThemeCSS", () => {
   it("keeps ordinary anchors from inheriting link color while preserving footnote link styling", () => {
