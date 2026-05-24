@@ -2,21 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 import Reader from "./Reader";
-
-interface Book {
-  id: string;
-  title: string;
-  author: string;
-  path: string;
-  cover: string | null;
-  added_at: number;
-  source_folder: string | null;
-}
-
-interface Library {
-  books: Book[];
-  folders: string[];
-}
+import { filterBooks } from "./utils";
+import type { Book, Library } from "./utils";
 
 // Reader window detection — injected by open_reader_window via initialization_script
 const READER_BOOK_ID = (window as any).__READER_BOOK_ID__ as string | undefined;
@@ -205,15 +192,7 @@ function Bookshelf() {
     }
   }, []);
 
-  const visibleBooks = library.books.filter((b) => {
-    const inFolder =
-      selectedFolder === null || b.source_folder === selectedFolder;
-    const matchSearch =
-      search === "" ||
-      b.title.toLowerCase().includes(search.toLowerCase()) ||
-      b.author.toLowerCase().includes(search.toLowerCase());
-    return inFolder && matchSearch;
-  });
+  const visibleBooks = filterBooks(library.books, selectedFolder, search);
 
   return (
     <div className="app">

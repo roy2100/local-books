@@ -20,7 +20,9 @@ cd src-tauri && cargo check          # Fast type/borrow check without linking
 cd src-tauri && cargo clippy         # Lint Rust code
 ```
 
-No test suite exists yet.
+# Run all tests
+npm test                               # frontend (Vitest, pure-logic only)
+cd src-tauri && cargo test --lib       # Rust unit tests (16 tests)
 
 ## Architecture
 
