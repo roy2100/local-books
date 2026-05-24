@@ -37,9 +37,56 @@ const BG: Record<Theme, string> = {
   dark: "#111113",
 };
 
+interface TocItem {
+  id: string;
+  href: string;
+  label: string;
+  subitems?: TocItem[];
+}
+
 interface Props {
   bookId: string;
   bookTitle: string;
+}
+
+// Strip fragment (#anchor) and resolve to basename for comparison
+function hrefBase(href: string): string {
+  return href.split("#")[0].split("/").pop() ?? href.split("#")[0];
+}
+
+function TocRow({
+  item,
+  depth,
+  activeBase,
+  onNavigate,
+}: {
+  item: TocItem;
+  depth: number;
+  activeBase: string;
+  onNavigate: (href: string) => void;
+}) {
+  const isActive = hrefBase(item.href) === activeBase;
+  return (
+    <>
+      <button
+        className={`toc-item ${isActive ? "toc-item--active" : ""}`}
+        style={{ paddingLeft: `${20 + depth * 18}px` }}
+        onClick={() => onNavigate(item.href)}
+        title={item.label.trim()}
+      >
+        <span className="toc-label">{item.label.trim()}</span>
+      </button>
+      {item.subitems?.map((sub) => (
+        <TocRow
+          key={sub.id || sub.href}
+          item={sub}
+          depth={depth + 1}
+          activeBase={activeBase}
+          onNavigate={onNavigate}
+        />
+      ))}
+    </>
+  );
 }
 
 export default function Reader({ bookId, bookTitle }: Props) {
@@ -52,6 +99,9 @@ export default function Reader({ bookId, bookTitle }: Props) {
   const [theme, setTheme] = useState<Theme>("light");
   const [fontSize, setFontSize] = useState(18);
   const [showSettings, setShowSettings] = useState(false);
+  const [showToc, setShowToc] = useState(false);
+  const [toc, setToc] = useState<TocItem[]>([]);
+  const [activeHrefBase, setActiveHrefBase] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -64,13 +114,13 @@ export default function Reader({ bookId, bookTitle }: Props) {
     }, 3000);
   }, []);
 
-  // Keep UI visible while settings panel is open
+  // Keep UI visible while panels are open
   useEffect(() => {
-    if (showSettings) {
+    if (showSettings || showToc) {
       if (hideTimer.current) clearTimeout(hideTimer.current);
       setShowUI(true);
     }
-  }, [showSettings]);
+  }, [showSettings, showToc]);
 
   // Init epub.js
   useEffect(() => {
@@ -97,12 +147,26 @@ export default function Reader({ bookId, bookTitle }: Props) {
       setError(`无法打开书籍：${e?.message ?? e}`);
     });
 
+    // Load TOC after navigation data is ready
+    (book as any).loaded.navigation.then((nav: any) => {
+      if (nav?.toc) setToc(nav.toc);
+    });
+
     rendition.on("relocated", (location: any) => {
-      if (!location?.start?.cfi) return;
-      book.locations.generate(1200).then(() => {
-        const pct = book.locations.percentageFromCfi(location.start.cfi) ?? 0;
-        setProgress(Math.round(pct * 100));
-      });
+      if (!location?.start) return;
+
+      // Track active TOC entry
+      if (location.start.href) {
+        setActiveHrefBase(hrefBase(location.start.href));
+      }
+
+      // Update progress
+      if (location.start.cfi) {
+        book.locations.generate(1200).then(() => {
+          const pct = book.locations.percentageFromCfi(location.start.cfi) ?? 0;
+          setProgress(Math.round(pct * 100));
+        });
+      }
     });
 
     return () => {
@@ -137,6 +201,10 @@ export default function Reader({ bookId, bookTitle }: Props) {
         e.preventDefault();
         rendRef.current.prev();
       }
+      if (e.key === "Escape") {
+        setShowToc(false);
+        setShowSettings(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -144,6 +212,23 @@ export default function Reader({ bookId, bookTitle }: Props) {
 
   const handlePrev = useCallback(() => rendRef.current?.prev(), []);
   const handleNext = useCallback(() => rendRef.current?.next(), []);
+
+  const navigateTo = useCallback((href: string) => {
+    rendRef.current?.display(href);
+    setShowToc(false);
+  }, []);
+
+  const toggleToc = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowToc((s) => !s);
+    setShowSettings(false);
+  }, []);
+
+  const toggleSettings = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowSettings((s) => !s);
+    setShowToc(false);
+  }, []);
 
   return (
     <div
@@ -163,19 +248,44 @@ export default function Reader({ bookId, bookTitle }: Props) {
         >
           ‹
         </button>
+
+        {toc.length > 0 && (
+          <button
+            className={`reader-toc-btn ${showToc ? "active" : ""}`}
+            onClick={toggleToc}
+            title="目录"
+          >
+            <TocIcon />
+          </button>
+        )}
+
         <span className="reader-book-title" data-tauri-drag-region>
           {bookTitle}
         </span>
-        <button
-          className="reader-aa-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowSettings((s) => !s);
-          }}
-        >
+
+        <button className="reader-aa-btn" onClick={toggleSettings}>
           Aa
         </button>
       </div>
+
+      {/* TOC panel */}
+      <div className={`toc-panel toc-panel--${theme} ${showToc ? "open" : ""}`}>
+        <div className="toc-header">目录</div>
+        <div className="toc-list">
+          {toc.map((item) => (
+            <TocRow
+              key={item.id || item.href}
+              item={item}
+              depth={0}
+              activeBase={activeHrefBase}
+              onNavigate={navigateTo}
+            />
+          ))}
+        </div>
+      </div>
+      {showToc && (
+        <div className="toc-backdrop" onClick={() => setShowToc(false)} />
+      )}
 
       {/* Settings panel */}
       {showSettings && (
@@ -251,10 +361,7 @@ export default function Reader({ bookId, bookTitle }: Props) {
       {/* Bottom bar */}
       <div className={`reader-bottombar ${showUI ? "visible" : ""}`}>
         <div className="progress-track">
-          <div
-            className="progress-fill"
-            style={{ width: `${progress}%` }}
-          />
+          <div className="progress-fill" style={{ width: `${progress}%` }} />
         </div>
         <span className="progress-label">{progress}%</span>
       </div>
@@ -266,5 +373,18 @@ export default function Reader({ bookId, bookTitle }: Props) {
         </div>
       )}
     </div>
+  );
+}
+
+function TocIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+      <rect x="1" y="2.5" width="5" height="1.5" rx="0.75" />
+      <rect x="1" y="7.25" width="5" height="1.5" rx="0.75" />
+      <rect x="1" y="12" width="5" height="1.5" rx="0.75" />
+      <rect x="8" y="2.5" width="7" height="1.5" rx="0.75" />
+      <rect x="8" y="7.25" width="7" height="1.5" rx="0.75" />
+      <rect x="8" y="12" width="7" height="1.5" rx="0.75" />
+    </svg>
   );
 }

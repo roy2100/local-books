@@ -303,6 +303,140 @@
   color: #e0e0e0;
 }
 
+/* ── TOC button ───────────────────────────────────────────── */
+.reader-toc-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.reader-toc-btn:hover,
+.reader-toc-btn.active {
+  opacity: 1;
+  background: rgba(128, 128, 128, 0.15);
+}
+
+/* ── TOC panel ────────────────────────────────────────────── */
+.toc-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 44;
+}
+
+.toc-panel {
+  position: fixed;
+  top: 48px;
+  left: 12px;
+  width: 272px;
+  max-height: calc(100vh - 60px);
+  border-radius: 12px;
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateX(calc(-100% - 24px));
+  opacity: 0;
+  transition: transform 0.26s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.2s ease;
+  pointer-events: none;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.toc-panel.open {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Theme variants */
+.toc-panel--light {
+  background: rgba(250, 248, 244, 0.97);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  color: #1a1a1a;
+}
+
+.toc-panel--sepia {
+  background: rgba(246, 240, 230, 0.97);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  color: #3b2d1f;
+}
+
+.toc-panel--dark {
+  background: rgba(36, 36, 40, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e0e0e0;
+}
+
+.toc-header {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.4;
+  padding: 14px 20px 8px;
+  flex-shrink: 0;
+}
+
+.toc-list {
+  overflow-y: auto;
+  flex: 1;
+  padding-bottom: 12px;
+}
+
+.toc-list::-webkit-scrollbar {
+  width: 4px;
+}
+.toc-list::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.2);
+  border-radius: 2px;
+}
+
+/* TOC item */
+.toc-item {
+  display: flex;
+  align-items: baseline;
+  width: 100%;
+  padding: 7px 20px 7px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 0;
+  transition: background 0.12s;
+  color: inherit;
+  gap: 8px;
+}
+
+.toc-item:hover {
+  background: rgba(128, 128, 128, 0.1);
+}
+
+.toc-item--active {
+  color: #ff9f0a;
+}
+
+.toc-item--active:hover {
+  background: rgba(255, 159, 10, 0.08);
+}
+
+.toc-label {
+  font-size: 13.5px;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 /* ── Error overlay ────────────────────────────────────────── */
 .reader-error {
   position: fixed;
