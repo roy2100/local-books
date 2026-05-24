@@ -2,12 +2,10 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use epub::doc::EpubDoc;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 use walkdir::WalkDir;
-use zip::ZipArchive;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Book {
@@ -113,142 +111,6 @@ fn scan_folder_for_epubs(folder: &str, source_folder: &str) -> Vec<Book> {
     books
 }
 
-// ── Spine / TOC types ────────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize, Clone)]
-pub struct SpineItem {
-    pub href: String,
-    pub id: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-pub struct TocEntry {
-    pub label: String,
-    pub href: String,
-    pub children: Vec<TocEntry>,
-}
-
-#[derive(Debug, Serialize, Clone)]
-pub struct BookContents {
-    pub spine: Vec<SpineItem>,
-    pub toc: Vec<TocEntry>,
-}
-
-// ── Main EPUB contents parser ─────────────────────────────────────────────────
-
-fn nav_point_to_toc_entry(np: &epub::doc::NavPoint) -> TocEntry {
-    TocEntry {
-        label: np.label.clone(),
-        href: np.content.to_string_lossy().replace('\\', "/"),
-        children: np.children.iter().map(nav_point_to_toc_entry).collect(),
-    }
-}
-
-fn parse_epub_contents(epub_path: &Path) -> Option<BookContents> {
-    let doc = EpubDoc::new(epub_path).ok()?;
-
-    let spine: Vec<SpineItem> = doc
-        .spine
-        .iter()
-        .filter(|s| s.linear)
-        .filter_map(|s| {
-            let resource = doc.resources.get(&s.idref)?;
-            let href = resource.path.to_string_lossy().replace('\\', "/");
-            Some(SpineItem { href, id: s.idref.clone() })
-        })
-        .collect();
-
-    let toc: Vec<TocEntry> = doc.toc.iter().map(nav_point_to_toc_entry).collect();
-
-    Some(BookContents { spine, toc })
-}
-
-// ── Script injected into every EPUB HTML chapter ──────────────────────────────
-
-const READER_SCRIPT: &str = r#"<style>
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.22); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.42); }
-</style>
-<script>
-(function(){
-  document.addEventListener('click', function(e) {
-    var a = e.target;
-    while (a && a.tagName !== 'A') a = a.parentElement;
-    if (!a) return;
-    var href = a.getAttribute('href');
-    if (!href || href.charAt(0) === '#') return;
-    e.preventDefault();
-    e.stopPropagation();
-    window.parent.postMessage({type:'epub-navigate', href: a.href}, '*');
-  }, true);
-  window.addEventListener('message', function(e) {
-    if (!e.data || e.data.type !== 'epub-theme') return;
-    var el = document.getElementById('__reader_css__');
-    if (!el) {
-      el = document.createElement('style');
-      el.id = '__reader_css__';
-      var head = document.head || document.getElementsByTagName('head')[0];
-      if (head) head.insertBefore(el, head.firstChild);
-    }
-    el.textContent = e.data.css;
-  });
-  window.parent.postMessage({type:'epub-ready'}, '*');
-})();
-</script>"#;
-
-fn inject_reader_script(buf: Vec<u8>) -> Vec<u8> {
-    let html = match String::from_utf8(buf) {
-        Ok(s) => s,
-        Err(e) => return e.into_bytes(),
-    };
-    let lower = html.to_lowercase();
-    let pos = lower
-        .rfind("</body>")
-        .or_else(|| lower.rfind("</html>"))
-        .unwrap_or(html.len());
-    format!("{}{}{}", &html[..pos], READER_SCRIPT, &html[pos..]).into_bytes()
-}
-
-/// Splits `epub://localhost/{book_id}/{file_path}` into `(book_id, file_path)`.
-/// `file_path` is empty when no path after the id, or equals "book.epub" for the binary.
-fn parse_epub_uri(uri: &str) -> (&str, &str) {
-    let after_host = uri
-        .split("://")
-        .nth(1)
-        .unwrap_or("")
-        .trim_start_matches("localhost/")
-        .trim_start_matches('/');
-    // Strip query string before splitting on path separator
-    let path = after_host.split('?').next().unwrap_or(after_host);
-    match path.find('/') {
-        Some(idx) => (&path[..idx], path[idx + 1..].trim_start_matches('/')),
-        None => (path, ""),
-    }
-}
-
-fn mime_type_for(path: &str) -> &'static str {
-    let p = path.to_lowercase();
-    if p.ends_with(".css") { "text/css" }
-    else if p.ends_with(".xhtml") || p.ends_with(".html") || p.ends_with(".htm") { "text/html; charset=utf-8" }
-    else if p.ends_with(".jpg") || p.ends_with(".jpeg") { "image/jpeg" }
-    else if p.ends_with(".png") { "image/png" }
-    else if p.ends_with(".gif") { "image/gif" }
-    else if p.ends_with(".svg") { "image/svg+xml" }
-    else if p.ends_with(".opf") { "application/oebps-package+xml" }
-    else if p.ends_with(".ncx") { "application/x-dtbncx+xml" }
-    else if p.ends_with(".xml") { "application/xml" }
-    else if p.ends_with(".ttf") { "font/ttf" }
-    else if p.ends_with(".otf") { "font/otf" }
-    else if p.ends_with(".woff") { "font/woff" }
-    else if p.ends_with(".woff2") { "font/woff2" }
-    else { "application/octet-stream" }
-}
-
-// epub:// protocol handler — serves either the full EPUB binary or individual files within it.
-// epub://localhost/{id}/book.epub  → full binary (epub.js binary mode)
-// epub://localhost/{id}/OEBPS/Styles/style.css → single file from the ZIP with correct MIME
 fn serve_epub_protocol(
     ctx: tauri::UriSchemeContext<'_, impl tauri::Runtime>,
     request: tauri::http::Request<Vec<u8>>,
@@ -263,7 +125,11 @@ fn serve_epub_protocol(
     };
 
     let uri = request.uri().to_string();
-    let (book_id, file_path) = parse_epub_uri(&uri);
+    let book_id = uri
+        .trim_start_matches("epub://localhost/")
+        .split('/')
+        .next()
+        .unwrap_or("");
 
     if book_id.is_empty() {
         return err(400, "missing book id");
@@ -274,50 +140,15 @@ fn serve_epub_protocol(
         return err(404, "book not found");
     };
 
-    // No path (or the synthetic "book.epub") → serve full binary so epub.js can open it
-    if file_path.is_empty() || file_path == "book.epub" {
-        return match fs::read(&book.path) {
-            Ok(bytes) => tauri::http::Response::builder()
-                .status(200)
-                .header("Content-Type", "application/epub+zip")
-                .header("Access-Control-Allow-Origin", "*")
-                .body(bytes)
-                .unwrap(),
-            Err(_) => err(500, "failed to read epub"),
-        };
+    match fs::read(&book.path) {
+        Ok(bytes) => tauri::http::Response::builder()
+            .status(200)
+            .header("Content-Type", "application/epub+zip")
+            .header("Access-Control-Allow-Origin", "*")
+            .body(bytes)
+            .unwrap(),
+        Err(_) => err(500, "failed to read epub"),
     }
-
-    // Specific path → extract that file from the ZIP and serve it with correct MIME type
-    let file = match fs::File::open(&book.path) {
-        Ok(f) => f,
-        Err(_) => return err(500, "failed to open epub"),
-    };
-    let mut archive = match ZipArchive::new(file) {
-        Ok(a) => a,
-        Err(_) => return err(500, "failed to parse epub"),
-    };
-    let mut entry = match archive.by_name(file_path) {
-        Ok(e) => e,
-        Err(_) => return err(404, "file not found in epub"),
-    };
-    let mut buf = Vec::new();
-    if entry.read_to_end(&mut buf).is_err() {
-        return err(500, "failed to read file from epub");
-    }
-
-    let mime = mime_type_for(file_path);
-    let body = if mime.starts_with("text/html") {
-        inject_reader_script(buf)
-    } else {
-        buf
-    };
-
-    tauri::http::Response::builder()
-        .status(200)
-        .header("Content-Type", mime)
-        .header("Access-Control-Allow-Origin", "*")
-        .body(body)
-        .unwrap()
 }
 
 #[tauri::command]
@@ -386,17 +217,6 @@ async fn refresh_folder(app: AppHandle, folder_path: String) -> Result<Library, 
 }
 
 #[tauri::command]
-async fn get_book_contents(app: AppHandle, book_id: String) -> Result<BookContents, String> {
-    let library = load_library(&app);
-    let book = library
-        .books
-        .iter()
-        .find(|b| b.id == book_id)
-        .ok_or_else(|| "book not found".to_string())?;
-    parse_epub_contents(Path::new(&book.path)).ok_or_else(|| "failed to parse epub".to_string())
-}
-
-#[tauri::command]
 async fn open_reader_window(
     app: AppHandle,
     book_id: String,
@@ -447,7 +267,6 @@ pub fn run() {
             remove_folder,
             refresh_folder,
             open_reader_window,
-            get_book_contents,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -519,41 +338,6 @@ mod tests {
         let mut f = tempfile::Builder::new().suffix(".epub").tempfile().unwrap();
         f.write_all(bytes).unwrap();
         f
-    }
-
-    // ── URI parsing ───────────────────────────────────────────────────────────
-
-    #[test]
-    fn book_id_extracted_with_epub_suffix() {
-        assert_eq!(parse_epub_uri("epub://localhost/abc-123/book.epub").0, "abc-123");
-    }
-
-    #[test]
-    fn book_id_extracted_bare() {
-        assert_eq!(parse_epub_uri("epub://localhost/abc-123").0, "abc-123");
-    }
-
-    #[test]
-    fn book_id_extracted_trailing_slash() {
-        assert_eq!(parse_epub_uri("epub://localhost/abc-123/").0, "abc-123");
-    }
-
-    #[test]
-    fn book_id_empty_when_root_only() {
-        assert_eq!(parse_epub_uri("epub://localhost/").0, "");
-    }
-
-    #[test]
-    fn file_path_extracted() {
-        assert_eq!(
-            parse_epub_uri("epub://localhost/abc-123/OEBPS/Styles/style.css").1,
-            "OEBPS/Styles/style.css"
-        );
-    }
-
-    #[test]
-    fn book_id_query_param_ignored() {
-        assert_eq!(parse_epub_uri("epub://localhost/abc-123?v=1").0, "abc-123");
     }
 
     // ── Library serialization ─────────────────────────────────────────────────
