@@ -434,7 +434,13 @@ fn parse_epub_contents(epub_path: &Path) -> Option<BookContents> {
 
 // ── Script injected into every EPUB HTML chapter ──────────────────────────────
 
-const READER_SCRIPT: &str = r#"<script>
+const READER_SCRIPT: &str = r#"<style>
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.22); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.42); }
+</style>
+<script>
 (function(){
   document.addEventListener('click', function(e) {
     var a = e.target;

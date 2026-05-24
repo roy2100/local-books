@@ -20,9 +20,10 @@
 **目标**: 悬浮圆角毛玻璃面板，视觉上脱离窗口边缘。
 
 布局调整：
+- `position: relative`（伪元素高光线依赖定位上下文）
 - `margin: 8px 0 8px 8px`（顶/底/左各留 8px 间距）
 - `border-radius: 12px`
-- 去掉 `border-right`（右边框由投影代替）
+- 移除 `border-right: 1px solid var(--border)`（右边框由投影代替）
 
 玻璃效果：
 - `backdrop-filter: blur(28px) saturate(160%)`

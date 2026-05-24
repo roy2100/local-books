@@ -29,6 +29,16 @@ const BG: Record<Theme, string> = {
 export function makeThemeCSS(theme: Theme, fontSize: number): string {
   const text = { light: "#1a1a1a", sepia: "#3b2d1f", dark: "#dcdcdc" }[theme];
   const link = { light: "#1a73e8", sepia: "#7a5c00", dark: "#7eb8f7" }[theme];
+  const scrollThumb = {
+    light: "rgba(0,0,0,0.18)",
+    sepia: "rgba(80,50,20,0.2)",
+    dark: "rgba(255,255,255,0.18)",
+  }[theme];
+  const scrollThumbHover = {
+    light: "rgba(0,0,0,0.32)",
+    sepia: "rgba(80,50,20,0.36)",
+    dark: "rgba(255,255,255,0.32)",
+  }[theme];
   return `
     html, body { background: ${BG[theme]} !important; color: ${text} !important; }
     body {
@@ -60,6 +70,14 @@ export function makeThemeCSS(theme: Theme, fontSize: number): string {
     }
     img { max-width: 100% !important; height: auto !important; }
     * { box-sizing: border-box; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: ${scrollThumb};
+      border-radius: 3px;
+      transition: background 0.2s;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: ${scrollThumbHover}; }
   `;
 }
 
@@ -253,9 +271,6 @@ export default function Reader({ bookId, bookTitle }: Props) {
 
       {/* Top bar */}
       <div className={`reader-topbar ${showUI ? "visible" : ""}`} data-tauri-drag-region>
-        <button className="reader-close-btn" onClick={() => window.close()} title="关闭">
-          <ChevronLeft aria-hidden="true" />
-        </button>
         {(contents?.toc.length ?? 0) > 0 && (
           <button
             className={`reader-toc-btn ${showToc ? "active" : ""}`}
