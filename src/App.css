@@ -165,23 +165,16 @@ body {
   background: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(28px) saturate(160%);
   -webkit-backdrop-filter: blur(28px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.70);
+  border-top: 1px solid rgba(255, 255, 255, 0.85);
+  border-right: 1px solid rgba(255, 255, 255, 0.70);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.70);
+  border-left: 1px solid rgba(255, 255, 255, 0.70);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
   padding: 16px 8px;
   overflow-y: auto;
   flex-shrink: 0;
-  margin: 8px 0 8px 8px;
-}
-
-.sidebar::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 1px;
-  background: rgba(255, 255, 255, 0.85);
-  border-radius: 12px 12px 0 0;
-  pointer-events: none;
+  margin: 8px 4px 8px 8px;
 }
 
 .sidebar-section {
@@ -550,10 +543,8 @@ body {
   .sidebar {
     background: rgba(40, 40, 44, 0.60);
     border-color: rgba(255, 255, 255, 0.10);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.18);
-  }
-  .sidebar::before {
-    background: rgba(255, 255, 255, 0.10);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18);
+    /* backdrop-filter 与 light 模式相同，无需覆盖 */
   }
 }
 
