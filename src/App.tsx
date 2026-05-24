@@ -1,6 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  BookOpen,
+  Folder,
+  LibraryBig,
+  LoaderCircle,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+  X as XIcon,
+} from "lucide-react";
 import "./App.css";
 import Reader from "./Reader";
 import { filterBooks } from "./utils";
@@ -51,12 +62,14 @@ function BookCard({
           <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
           <div className="context-menu">
             <button onClick={() => { onOpen(book); setMenuOpen(false); }}>
+              <BookOpen className="menu-icon" aria-hidden="true" />
               打开
             </button>
             <button
               className="danger"
               onClick={() => { onRemove(book.id); setMenuOpen(false); }}
             >
+              <Trash2 className="menu-icon" aria-hidden="true" />
               从书库移除
             </button>
           </div>
@@ -90,8 +103,8 @@ function FolderSidebar({
           className={`sidebar-item ${selectedFolder === null ? "active" : ""}`}
           onClick={() => onSelect(null)}
         >
-          <span className="sidebar-icon">📚</span>
-          所有图书
+          <LibraryBig className="sidebar-icon" aria-hidden="true" />
+          <span>所有图书</span>
         </button>
       </div>
       {folders.length > 0 && (
@@ -104,7 +117,7 @@ function FolderSidebar({
                 onClick={() => onSelect(folder)}
                 title={folder}
               >
-                <span className="sidebar-icon">📁</span>
+                <Folder className="sidebar-icon" aria-hidden="true" />
                 <span className="sidebar-folder-name">{folderName(folder)}</span>
               </button>
               <div className="sidebar-folder-actions">
@@ -113,14 +126,14 @@ function FolderSidebar({
                   onClick={() => onRefresh(folder)}
                   title="刷新"
                 >
-                  ↻
+                  <RefreshCw aria-hidden="true" />
                 </button>
                 <button
                   className="icon-btn icon-btn-danger"
                   onClick={() => onRemove(folder)}
                   title="移除文件夹"
                 >
-                  ×
+                  <XIcon aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -206,6 +219,7 @@ function Bookshelf() {
           }}
         />
         <div className="titlebar-search">
+          <Search className="search-icon" aria-hidden="true" />
           <input
             className="search-input"
             placeholder="搜索书籍…"
@@ -214,7 +228,12 @@ function Bookshelf() {
           />
         </div>
         <button className="add-btn" onClick={handleAddFolder} disabled={importing}>
-          {importing ? "导入中…" : "+ 添加文件夹"}
+          {importing ? (
+            <LoaderCircle className="button-icon button-icon--spin" aria-hidden="true" />
+          ) : (
+            <Plus className="button-icon" aria-hidden="true" />
+          )}
+          <span>{importing ? "导入中…" : "添加文件夹"}</span>
         </button>
       </div>
 
@@ -237,7 +256,7 @@ function Bookshelf() {
 
           {visibleBooks.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-icon">📖</div>
+              <BookOpen className="empty-icon" aria-hidden="true" />
               <p className="empty-title">
                 {library.books.length === 0 ? "书库是空的" : "没有找到书籍"}
               </p>
@@ -252,7 +271,12 @@ function Bookshelf() {
                   onClick={handleAddFolder}
                   disabled={importing}
                 >
-                  {importing ? "导入中…" : "添加文件夹"}
+                  {importing ? (
+                    <LoaderCircle className="button-icon button-icon--spin" aria-hidden="true" />
+                  ) : (
+                    <Plus className="button-icon" aria-hidden="true" />
+                  )}
+                  <span>{importing ? "导入中…" : "添加文件夹"}</span>
                 </button>
               )}
             </div>

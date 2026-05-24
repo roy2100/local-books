@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  ALargeSmall,
+  ChevronLeft,
+  ChevronRight,
+  TableOfContents,
+} from "lucide-react";
 import "./Reader.css";
 
 type Theme = "light" | "sepia" | "dark";
@@ -231,7 +237,7 @@ export default function Reader({ bookId, bookTitle }: Props) {
       {/* Top bar */}
       <div className={`reader-topbar ${showUI ? "visible" : ""}`} data-tauri-drag-region>
         <button className="reader-close-btn" onClick={() => window.close()} title="关闭">
-          ‹
+          <ChevronLeft aria-hidden="true" />
         </button>
         {(contents?.toc.length ?? 0) > 0 && (
           <button
@@ -239,15 +245,16 @@ export default function Reader({ bookId, bookTitle }: Props) {
             onClick={(e) => { e.stopPropagation(); setShowToc((s) => !s); setShowSettings(false); }}
             title="目录"
           >
-            <TocIcon />
+            <TableOfContents aria-hidden="true" />
           </button>
         )}
         <span className="reader-book-title" data-tauri-drag-region>{bookTitle}</span>
         <button
           className="reader-aa-btn"
           onClick={(e) => { e.stopPropagation(); setShowSettings((s) => !s); setShowToc(false); }}
+          title="阅读设置"
         >
-          Aa
+          <ALargeSmall aria-hidden="true" />
         </button>
       </div>
 
@@ -305,7 +312,9 @@ export default function Reader({ bookId, bookTitle }: Props) {
         onClick={handlePrev}
         aria-label="上一章"
         disabled={spineIndex === 0}
-      >‹</button>
+      >
+        <ChevronLeft aria-hidden="true" />
+      </button>
 
       {/* Chapter iframe */}
       <div className="reader-stage">
@@ -327,7 +336,9 @@ export default function Reader({ bookId, bookTitle }: Props) {
         onClick={handleNext}
         aria-label="下一章"
         disabled={spineIndex === (contents?.spine.length ?? 1) - 1}
-      >›</button>
+      >
+        <ChevronRight aria-hidden="true" />
+      </button>
 
       {/* Progress bar */}
       <div className={`reader-bottombar ${showUI ? "visible" : ""}`}>
@@ -344,18 +355,5 @@ export default function Reader({ bookId, bookTitle }: Props) {
         </div>
       )}
     </div>
-  );
-}
-
-function TocIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-      <rect x="1" y="2.5" width="5" height="1.5" rx="0.75" />
-      <rect x="1" y="7.25" width="5" height="1.5" rx="0.75" />
-      <rect x="1" y="12" width="5" height="1.5" rx="0.75" />
-      <rect x="8" y="2.5" width="7" height="1.5" rx="0.75" />
-      <rect x="8" y="7.25" width="7" height="1.5" rx="0.75" />
-      <rect x="8" y="12" width="7" height="1.5" rx="0.75" />
-    </svg>
   );
 }

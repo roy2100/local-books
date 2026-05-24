@@ -76,13 +76,22 @@
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 26px;
-  line-height: 1;
-  padding: 2px 8px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0.55;
   transition: opacity 0.15s, background 0.15s;
   color: inherit;
+}
+
+.reader-close-btn svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.25;
 }
 
 .reader-close-btn:hover {
@@ -105,14 +114,22 @@
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
-  padding: 4px 10px;
+  width: 34px;
+  height: 32px;
+  padding: 0;
   border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0.55;
-  letter-spacing: -0.02em;
   transition: opacity 0.15s, background 0.15s;
   color: inherit;
+}
+
+.reader-aa-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
 }
 
 .reader-aa-btn:hover {
@@ -129,7 +146,6 @@
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 30px;
   color: rgba(128, 128, 128, 0.35);
   opacity: 0;
   pointer-events: none;
@@ -138,6 +154,12 @@
   align-items: center;
   justify-content: center;
   z-index: 20;
+}
+
+.page-nav svg {
+  width: 28px;
+  height: 28px;
+  stroke-width: 1.8;
 }
 
 .page-nav.visible {
@@ -327,7 +349,9 @@
   background: none;
   border: none;
   cursor: pointer;
-  padding: 6px 8px;
+  width: 34px;
+  height: 32px;
+  padding: 0;
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -336,6 +360,12 @@
   transition: opacity 0.15s, background 0.15s;
   color: inherit;
   flex-shrink: 0;
+}
+
+.reader-toc-btn svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 2.2;
 }
 
 .reader-toc-btn:hover,
