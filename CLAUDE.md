@@ -140,3 +140,22 @@ Styling: plain CSS, no framework. `prefers-color-scheme` handled by the bookshel
 1. Write `async fn` in `lib.rs`, annotated `#[tauri::command]`
 2. Register in `tauri::generate_handler![...]` inside `run()`
 3. Call from frontend: `invoke<ReturnType>("command_name", { argName })`
+
+## UI Design Style
+
+**Liquid Glass (macOS 26 style)** — only panels use frosted glass; main content areas stay solid.
+
+Glass components: sidebar (floating, `margin: 8px 0 8px 8px`, `border-radius: 12px`), context menu, reader TOC panel, reader settings panel.
+No glass: titlebar, book grid/cards, reader body.
+
+Blur hierarchy: TOC panel `blur(32px)` > sidebar/settings `blur(28px)` > context menu `blur(24px)`, all with `saturate(160%/150%)`.
+Always pair `-webkit-backdrop-filter` with `backdrop-filter`.
+
+Dark mode: bookshelf uses `@media (prefers-color-scheme: dark)` in App.css; reader uses JS-controlled classes (`.toc-panel--dark`, `.reader-settings--dark`).
+
+## CSS Gotchas
+
+**`overflow-y: auto` + `::before` highlight line** — the pseudo-element scrolls away with content. Use non-uniform `border-top` (brighter) instead of `::before`.
+`overflow: hidden` is safe (static clip) — `::before { top: 0 }` won't be clipped.
+
+**iframe scrollbar styling** — inject `::-webkit-scrollbar` CSS in Rust's `READER_SCRIPT` as a `<style>` tag. postMessage-injected CSS has timing issues for scrollbar rules.
