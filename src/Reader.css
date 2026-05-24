@@ -503,22 +503,21 @@
 
 /* ── TOC panel highlight line ────────────────────────────── */
 .toc-panel--light::before,
-.toc-panel--sepia::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 1px;
-  background: rgba(255, 255, 255, 0.80);
-  border-radius: 12px 12px 0 0;
-  pointer-events: none;
-}
-
+.toc-panel--sepia::before,
 .toc-panel--dark::before {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 1px;
-  background: rgba(255, 255, 255, 0.15);
   border-radius: 12px 12px 0 0;
   pointer-events: none;
+}
+
+.toc-panel--light::before,
+.toc-panel--sepia::before {
+  background: rgba(255, 255, 255, 0.80);
+}
+
+.toc-panel--dark::before {
+  background: rgba(255, 255, 255, 0.15);
 }
