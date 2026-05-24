@@ -1,9 +1,8 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
-use roxmltree::Document;
+use epub::doc::EpubDoc;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Read;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
@@ -53,108 +52,23 @@ fn save_library<R: tauri::Runtime>(app: &AppHandle<R>, library: &Library) {
 }
 
 fn extract_epub_metadata(epub_path: &Path) -> Option<(String, String, Option<String>)> {
-    let file = fs::File::open(epub_path).ok()?;
-    let mut archive = ZipArchive::new(file).ok()?;
+    let mut doc = EpubDoc::new(epub_path).ok()?;
 
-    let opf_path = {
-        let mut container = archive.by_name("META-INF/container.xml").ok()?;
-        let mut content = String::new();
-        container.read_to_string(&mut content).ok()?;
-        let doc = Document::parse(&content).ok()?;
-        doc.descendants()
-            .find(|n| n.tag_name().name() == "rootfile")
-            .and_then(|n| n.attribute("full-path"))
-            .map(|s| s.to_string())?
-    };
-
-    let opf_content = {
-        let mut opf_file = archive.by_name(&opf_path).ok()?;
-        let mut content = String::new();
-        opf_file.read_to_string(&mut content).ok()?;
-        content
-    };
-
-    let doc = Document::parse(&opf_content).ok()?;
-
-    let title = doc
-        .descendants()
-        .find(|n| n.tag_name().name() == "title")
-        .and_then(|n| n.text())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| {
-            epub_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Unknown Title")
-                .to_string()
-        });
+    let title = doc.get_title().unwrap_or_else(|| {
+        epub_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Unknown Title")
+            .to_string()
+    });
 
     let author = doc
-        .descendants()
-        .find(|n| n.tag_name().name() == "creator")
-        .and_then(|n| n.text())
-        .map(|s| s.trim().to_string())
+        .mdata("creator")
+        .map(|m| m.value.trim().to_string())
         .unwrap_or_else(|| "Unknown Author".to_string());
 
-    let opf_dir = Path::new(&opf_path)
-        .parent()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
-
-    let cover_id = doc
-        .descendants()
-        .find(|n| {
-            n.tag_name().name() == "meta"
-                && n.attribute("name").map(|v| v == "cover").unwrap_or(false)
-        })
-        .and_then(|n| n.attribute("content"))
-        .map(|s| s.to_string());
-
-    let cover_path = if let Some(cover_id) = cover_id {
-        doc.descendants()
-            .find(|n| {
-                n.tag_name().name() == "item"
-                    && n.attribute("id").map(|v| v == cover_id).unwrap_or(false)
-            })
-            .and_then(|n| n.attribute("href"))
-            .map(|href| {
-                if opf_dir.is_empty() {
-                    href.to_string()
-                } else {
-                    format!("{}/{}", opf_dir, href)
-                }
-            })
-    } else {
-        doc.descendants()
-            .find(|n| {
-                n.tag_name().name() == "item"
-                    && n.attribute("properties")
-                        .map(|v| v.contains("cover-image"))
-                        .unwrap_or(false)
-            })
-            .and_then(|n| n.attribute("href"))
-            .map(|href| {
-                if opf_dir.is_empty() {
-                    href.to_string()
-                } else {
-                    format!("{}/{}", opf_dir, href)
-                }
-            })
-    };
-
-    let cover_base64 = cover_path.and_then(|cp| {
-        let cp = cp.replace('\\', "/");
-        let mut entry = archive.by_name(&cp).ok()?;
-        let mut buf = Vec::new();
-        entry.read_to_end(&mut buf).ok()?;
-        let mime = if cp.ends_with(".png") {
-            "image/png"
-        } else if cp.ends_with(".gif") {
-            "image/gif"
-        } else {
-            "image/jpeg"
-        };
-        Some(format!("data:{};base64,{}", mime, STANDARD.encode(&buf)))
+    let cover_base64 = doc.get_cover().map(|(data, mime)| {
+        format!("data:{};base64,{}", mime, STANDARD.encode(&data))
     });
 
     Some((title, author, cover_base64))
@@ -220,214 +134,31 @@ pub struct BookContents {
     pub toc: Vec<TocEntry>,
 }
 
-// ── Path helpers ─────────────────────────────────────────────────────────────
-
-/// Resolve `..` and `.` segments in a slash-delimited path.
-fn normalize_path(path: &str) -> String {
-    let mut out: Vec<&str> = Vec::new();
-    for part in path.split('/') {
-        match part {
-            ".." => { out.pop(); }
-            "." | "" => {}
-            p => out.push(p),
-        }
-    }
-    out.join("/")
-}
-
-/// Remove `<!DOCTYPE ...>` declarations so roxmltree can parse XHTML nav files.
-fn strip_doctype(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut rest = s;
-    while let Some(start) = rest.find("<!DOCTYPE").or_else(|| rest.find("<!doctype")) {
-        result.push_str(&rest[..start]);
-        rest = &rest[start..];
-        if let Some(end) = rest.find('>') {
-            rest = &rest[end + 1..];
-        } else {
-            break;
-        }
-    }
-    result.push_str(rest);
-    result
-}
-
-// ── EPUB3 nav.xhtml TOC parser ────────────────────────────────────────────────
-
-fn parse_nav_ol<'d>(ol: roxmltree::Node<'d, 'd>, nav_dir: &str) -> Vec<TocEntry> {
-    ol.children()
-        .filter(|n| n.is_element() && n.tag_name().name() == "li")
-        .filter_map(|li| {
-            let a = li.children().find(|n| n.is_element() && n.tag_name().name() == "a")?;
-            let label = a.text().unwrap_or("").trim().to_string();
-            if label.is_empty() {
-                return None;
-            }
-            let raw = a.attribute("href").unwrap_or("");
-            let (raw_path, anchor) = raw.split_once('#').unwrap_or((raw, ""));
-            let full = normalize_path(&format!("{}{}", nav_dir, raw_path));
-            let href = if anchor.is_empty() { full } else { format!("{}#{}", full, anchor) };
-            let children = li
-                .children()
-                .find(|n| n.is_element() && n.tag_name().name() == "ol")
-                .map(|child_ol| parse_nav_ol(child_ol, nav_dir))
-                .unwrap_or_default();
-            Some(TocEntry { label, href, children })
-        })
-        .collect()
-}
-
-fn parse_nav_toc(archive: &mut ZipArchive<fs::File>, nav_path: &str) -> Option<Vec<TocEntry>> {
-    let mut entry = archive.by_name(nav_path).ok()?;
-    let mut content = String::new();
-    entry.read_to_string(&mut content).ok()?;
-    drop(entry);
-
-    let content = strip_doctype(&content);
-    let doc = Document::parse(&content).ok()?;
-    let nav_dir = Path::new(nav_path)
-        .parent()
-        .map(|p| {
-            let s = p.to_string_lossy();
-            if s.is_empty() { String::new() } else { format!("{}/", s) }
-        })
-        .unwrap_or_default();
-
-    let nav = doc.descendants().find(|n| {
-        n.is_element()
-            && n.tag_name().name() == "nav"
-            && n.attributes().any(|a| a.name() == "type" && a.value().contains("toc"))
-    })?;
-    let ol = nav.children().find(|n| n.is_element() && n.tag_name().name() == "ol")?;
-    Some(parse_nav_ol(ol, &nav_dir))
-}
-
-// ── EPUB2 toc.ncx TOC parser ──────────────────────────────────────────────────
-
-fn parse_nav_points<'d>(parent: roxmltree::Node<'d, 'd>, ncx_dir: &str) -> Vec<TocEntry> {
-    parent
-        .children()
-        .filter(|n| n.is_element() && n.tag_name().name() == "navPoint")
-        .filter_map(|np| {
-            let label = np
-                .descendants()
-                .find(|n| n.is_element() && n.tag_name().name() == "text")
-                .and_then(|n| n.text())
-                .map(|t| t.trim().to_string())
-                .unwrap_or_default();
-            if label.is_empty() {
-                return None;
-            }
-            let raw = np
-                .children()
-                .find(|n| n.is_element() && n.tag_name().name() == "content")
-                .and_then(|n| n.attribute("src"))
-                .unwrap_or("");
-            let (raw_path, anchor) = raw.split_once('#').unwrap_or((raw, ""));
-            let full = normalize_path(&format!("{}{}", ncx_dir, raw_path));
-            let href = if anchor.is_empty() { full } else { format!("{}#{}", full, anchor) };
-            let children = parse_nav_points(np, ncx_dir);
-            Some(TocEntry { label, href, children })
-        })
-        .collect()
-}
-
-fn parse_ncx_toc(archive: &mut ZipArchive<fs::File>, ncx_path: &str) -> Option<Vec<TocEntry>> {
-    let mut entry = archive.by_name(ncx_path).ok()?;
-    let mut content = String::new();
-    entry.read_to_string(&mut content).ok()?;
-    drop(entry);
-
-    let doc = Document::parse(&content).ok()?;
-    let ncx_dir = Path::new(ncx_path)
-        .parent()
-        .map(|p| {
-            let s = p.to_string_lossy();
-            if s.is_empty() { String::new() } else { format!("{}/", s) }
-        })
-        .unwrap_or_default();
-
-    let nav_map = doc.descendants().find(|n| n.is_element() && n.tag_name().name() == "navMap")?;
-    Some(parse_nav_points(nav_map, &ncx_dir))
-}
-
 // ── Main EPUB contents parser ─────────────────────────────────────────────────
 
+fn nav_point_to_toc_entry(np: &epub::doc::NavPoint) -> TocEntry {
+    TocEntry {
+        label: np.label.clone(),
+        href: np.content.to_string_lossy().replace('\\', "/"),
+        children: np.children.iter().map(nav_point_to_toc_entry).collect(),
+    }
+}
+
 fn parse_epub_contents(epub_path: &Path) -> Option<BookContents> {
-    let file = fs::File::open(epub_path).ok()?;
-    let mut archive = ZipArchive::new(file).ok()?;
+    let doc = EpubDoc::new(epub_path).ok()?;
 
-    let opf_path = {
-        let mut entry = archive.by_name("META-INF/container.xml").ok()?;
-        let mut content = String::new();
-        entry.read_to_string(&mut content).ok()?;
-        let doc = Document::parse(&content).ok()?;
-        doc.descendants()
-            .find(|n| n.tag_name().name() == "rootfile")
-            .and_then(|n| n.attribute("full-path"))
-            .map(|s| s.to_string())?
-    };
-
-    let opf_dir = Path::new(&opf_path)
-        .parent()
-        .map(|p| {
-            let s = p.to_string_lossy();
-            if s.is_empty() { String::new() } else { format!("{}/", s) }
-        })
-        .unwrap_or_default();
-
-    let opf_content = {
-        let mut entry = archive.by_name(&opf_path).ok()?;
-        let mut content = String::new();
-        entry.read_to_string(&mut content).ok()?;
-        content
-    };
-
-    let doc = Document::parse(&opf_content).ok()?;
-
-    // manifest: id → (full_href, media_type, properties)
-    let manifest: HashMap<String, (String, String, String)> = doc
-        .descendants()
-        .filter(|n| n.tag_name().name() == "item")
-        .filter_map(|n| {
-            let id = n.attribute("id")?;
-            let href = n.attribute("href").unwrap_or("");
-            let mt = n.attribute("media-type").unwrap_or("");
-            let props = n.attribute("properties").unwrap_or("");
-            let full = normalize_path(&format!("{}{}", opf_dir, href));
-            Some((id.to_string(), (full, mt.to_string(), props.to_string())))
-        })
-        .collect();
-
-    // spine: ordered linear items
     let spine: Vec<SpineItem> = doc
-        .descendants()
-        .filter(|n| n.tag_name().name() == "itemref")
-        .filter(|n| n.attribute("linear") != Some("no"))
-        .filter_map(|n| {
-            let idref = n.attribute("idref")?;
-            let (href, _, _) = manifest.get(idref)?;
-            Some(SpineItem { href: href.clone(), id: idref.to_string() })
+        .spine
+        .iter()
+        .filter(|s| s.linear)
+        .filter_map(|s| {
+            let resource = doc.resources.get(&s.idref)?;
+            let href = resource.path.to_string_lossy().replace('\\', "/");
+            Some(SpineItem { href, id: s.idref.clone() })
         })
         .collect();
 
-    // TOC: EPUB3 nav.xhtml preferred, fall back to EPUB2 toc.ncx
-    let nav_path = manifest
-        .values()
-        .find(|(_, _, props)| props.split_whitespace().any(|p| p == "nav"))
-        .map(|(href, _, _)| href.clone());
-
-    let toc = if let Some(path) = nav_path {
-        parse_nav_toc(&mut archive, &path).unwrap_or_default()
-    } else {
-        let ncx_path = manifest
-            .values()
-            .find(|(_, mt, _)| mt == "application/x-dtbncx+xml")
-            .map(|(href, _, _)| href.clone());
-        ncx_path
-            .and_then(|path| parse_ncx_toc(&mut archive, &path))
-            .unwrap_or_default()
-    };
+    let toc: Vec<TocEntry> = doc.toc.iter().map(nav_point_to_toc_entry).collect();
 
     Some(BookContents { spine, toc })
 }
@@ -818,11 +549,6 @@ mod tests {
             parse_epub_uri("epub://localhost/abc-123/OEBPS/Styles/style.css").1,
             "OEBPS/Styles/style.css"
         );
-    }
-
-    #[test]
-    fn normalize_path_resolves_dotdot() {
-        assert_eq!(normalize_path("OEBPS/Text/../Styles/style.css"), "OEBPS/Styles/style.css");
     }
 
     #[test]
