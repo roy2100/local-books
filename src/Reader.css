@@ -72,32 +72,6 @@
   pointer-events: auto;
 }
 
-.reader-close-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border-radius: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.55;
-  transition: opacity 0.15s, background 0.15s;
-  color: inherit;
-}
-
-.reader-close-btn svg {
-  width: 20px;
-  height: 20px;
-  stroke-width: 2.25;
-}
-
-.reader-close-btn:hover {
-  opacity: 1;
-  background: rgba(128, 128, 128, 0.15);
-}
 
 .reader-book-title {
   flex: 1;
@@ -398,6 +372,8 @@
               opacity 0.2s ease;
   pointer-events: none;
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(32px) saturate(160%);
+  -webkit-backdrop-filter: blur(32px) saturate(160%);
 }
 
 .toc-panel.open {
@@ -408,20 +384,20 @@
 
 /* Theme variants */
 .toc-panel--light {
-  background: rgba(250, 248, 244, 0.97);
-  border: 1px solid rgba(0, 0, 0, 0.07);
+  background: rgba(250, 248, 244, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.65);
   color: #1a1a1a;
 }
 
 .toc-panel--sepia {
-  background: rgba(246, 240, 230, 0.97);
-  border: 1px solid rgba(0, 0, 0, 0.07);
+  background: rgba(246, 240, 230, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.60);
   color: #3b2d1f;
 }
 
 .toc-panel--dark {
-  background: rgba(36, 36, 40, 0.97);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(36, 36, 40, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   color: #e0e0e0;
 }
 
@@ -523,4 +499,26 @@
   padding: 8px 20px;
   font-size: 14px;
   cursor: pointer;
+}
+
+/* ── TOC panel highlight line ────────────────────────────── */
+.toc-panel--light::before,
+.toc-panel--sepia::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.80);
+  border-radius: 12px 12px 0 0;
+  pointer-events: none;
+}
+
+.toc-panel--dark::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 12px 12px 0 0;
+  pointer-events: none;
 }
