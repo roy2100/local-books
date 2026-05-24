@@ -1,0 +1,334 @@
+/* ── Reader shell ─────────────────────────────────────────── */
+.reader {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* ── epub.js stage ────────────────────────────────────────── */
+.reader-stage {
+  /* 52 px top (titlebar) + 40 px bottom (progress bar) */
+  position: absolute;
+  top: 52px;
+  left: 60px;   /* room for nav arrows */
+  right: 60px;
+  bottom: 40px;
+  display: flex;
+  align-items: stretch;
+}
+
+.reader-content {
+  flex: 1;
+  /* epub.js measures this div for pagination */
+  max-width: 740px;
+  margin: 0 auto;
+}
+
+/* ── Top bar ──────────────────────────────────────────────── */
+.reader-topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 0 80px; /* 80 px clears macOS traffic lights */
+  z-index: 30;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.reader-topbar.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.reader-close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 26px;
+  line-height: 1;
+  padding: 2px 8px;
+  border-radius: 6px;
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s;
+  color: inherit;
+}
+
+.reader-close-btn:hover {
+  opacity: 1;
+  background: rgba(128, 128, 128, 0.15);
+}
+
+.reader-book-title {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-aa-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  opacity: 0.55;
+  letter-spacing: -0.02em;
+  transition: opacity 0.15s, background 0.15s;
+  color: inherit;
+}
+
+.reader-aa-btn:hover {
+  opacity: 1;
+  background: rgba(128, 128, 128, 0.15);
+}
+
+/* ── Page nav arrows ──────────────────────────────────────── */
+.page-nav {
+  position: fixed;
+  top: 52px;
+  bottom: 40px;
+  width: 60px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 30px;
+  color: rgba(128, 128, 128, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s, color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.page-nav.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.page-nav:hover {
+  color: rgba(128, 128, 128, 0.75);
+}
+
+.page-nav--prev { left: 0; }
+.page-nav--next { right: 0; }
+
+/* ── Bottom progress bar ──────────────────────────────────── */
+.reader-bottombar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 80px;
+  z-index: 30;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.reader-bottombar.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.progress-track {
+  flex: 1;
+  max-width: 480px;
+  height: 2px;
+  background: rgba(128, 128, 128, 0.2);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: rgba(128, 128, 128, 0.45);
+  border-radius: 1px;
+  transition: width 0.6s ease;
+}
+
+.progress-label {
+  font-size: 11px;
+  opacity: 0.35;
+  min-width: 30px;
+  text-align: right;
+}
+
+/* ── Settings panel ───────────────────────────────────────── */
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+}
+
+.reader-settings {
+  position: fixed;
+  top: 58px;
+  right: 16px;
+  width: 224px;
+  border-radius: 14px;
+  padding: 14px 16px;
+  z-index: 40;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.28);
+}
+
+/* Light / sepia settings */
+.reader-settings--light,
+.reader-settings--sepia {
+  background: rgba(252, 250, 246, 0.96);
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  color: #1a1a1a;
+  backdrop-filter: blur(24px);
+}
+
+/* Dark settings */
+.reader-settings--dark {
+  background: rgba(38, 38, 42, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e5e5e5;
+  backdrop-filter: blur(24px);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.settings-divider {
+  height: 1px;
+  background: rgba(128, 128, 128, 0.15);
+  margin: 10px 0;
+}
+
+.settings-label {
+  font-size: 13px;
+  opacity: 0.65;
+}
+
+.settings-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stepper-btn {
+  background: rgba(128, 128, 128, 0.14);
+  border: none;
+  border-radius: 6px;
+  padding: 4px 9px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: inherit;
+  transition: background 0.15s;
+}
+
+.stepper-btn:hover {
+  background: rgba(128, 128, 128, 0.28);
+}
+
+.stepper-val {
+  font-size: 13px;
+  min-width: 22px;
+  text-align: center;
+  opacity: 0.8;
+}
+
+/* Theme chips */
+.theme-chips {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.theme-chip {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s, transform 0.1s;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.theme-chip--light { background: #faf9f6; }
+.theme-chip--sepia { background: #f6f0e6; }
+.theme-chip--dark  { background: #1c1c1e; }
+
+.theme-chip.active {
+  border-color: #ff9f0a;
+  transform: scale(1.12);
+}
+
+/* ── Theme text color for chrome ─────────────────────────── */
+.reader--light .reader-topbar,
+.reader--sepia .reader-topbar,
+.reader--light .reader-bottombar,
+.reader--sepia .reader-bottombar,
+.reader--light .page-nav,
+.reader--sepia .page-nav {
+  color: #1a1a1a;
+}
+
+.reader--dark .reader-topbar,
+.reader--dark .reader-bottombar,
+.reader--dark .page-nav {
+  color: #e0e0e0;
+}
+
+/* ── Error overlay ────────────────────────────────────────── */
+.reader-error {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  z-index: 50;
+}
+
+.reader-error p {
+  font-size: 15px;
+  max-width: 360px;
+  text-align: center;
+}
+
+.reader-error button {
+  background: #ff453a;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  padding: 8px 20px;
+  font-size: 14px;
+  cursor: pointer;
+}

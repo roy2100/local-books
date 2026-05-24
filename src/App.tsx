@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
+import Reader from "./Reader";
 
 interface Book {
   id: string;
@@ -17,17 +18,38 @@ interface Library {
   folders: string[];
 }
 
-function BookCard({ book, onRemove }: { book: Book; onRemove: (id: string) => void }) {
+// Reader window detection — injected by open_reader_window via initialization_script
+const READER_BOOK_ID = (window as any).__READER_BOOK_ID__ as string | undefined;
+const READER_BOOK_TITLE = (window as any).__READER_BOOK_TITLE__ as string | undefined;
+
+function BookCard({
+  book,
+  onRemove,
+  onOpen,
+}: {
+  book: Book;
+  onRemove: (id: string) => void;
+  onOpen: (book: Book) => void;
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <div className="book-card" onContextMenu={(e) => { e.preventDefault(); setMenuOpen(true); }}>
+    <div
+      className="book-card"
+      onDoubleClick={() => onOpen(book)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenuOpen(true);
+      }}
+    >
       <div className="book-cover">
         {book.cover ? (
           <img src={book.cover} alt={book.title} />
         ) : (
           <div className="book-cover-placeholder">
-            <span className="book-cover-letter">{book.title.charAt(0).toUpperCase()}</span>
+            <span className="book-cover-letter">
+              {book.title.charAt(0).toUpperCase()}
+            </span>
           </div>
         )}
         <div className="book-spine" />
@@ -40,7 +62,13 @@ function BookCard({ book, onRemove }: { book: Book; onRemove: (id: string) => vo
         <>
           <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
           <div className="context-menu">
-            <button onClick={() => { onRemove(book.id); setMenuOpen(false); }}>
+            <button onClick={() => { onOpen(book); setMenuOpen(false); }}>
+              打开
+            </button>
+            <button
+              className="danger"
+              onClick={() => { onRemove(book.id); setMenuOpen(false); }}
+            >
               从书库移除
             </button>
           </div>
@@ -63,7 +91,8 @@ function FolderSidebar({
   onRemove: (folder: string) => void;
   onRefresh: (folder: string) => void;
 }) {
-  const folderName = (path: string) => path.split("/").filter(Boolean).pop() ?? path;
+  const folderName = (path: string) =>
+    path.split("/").filter(Boolean).pop() ?? path;
 
   return (
     <div className="sidebar">
@@ -95,12 +124,16 @@ function FolderSidebar({
                   className="icon-btn"
                   onClick={() => onRefresh(folder)}
                   title="刷新"
-                >↻</button>
+                >
+                  ↻
+                </button>
                 <button
                   className="icon-btn icon-btn-danger"
                   onClick={() => onRemove(folder)}
                   title="移除文件夹"
-                >×</button>
+                >
+                  ×
+                </button>
               </div>
             </div>
           ))}
@@ -110,7 +143,7 @@ function FolderSidebar({
   );
 }
 
-export default function App() {
+function Bookshelf() {
   const [library, setLibrary] = useState<Library>({ books: [], folders: [] });
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -126,7 +159,6 @@ export default function App() {
     setError(null);
     const folderPath = await invoke<string | null>("pick_folder");
     if (!folderPath) return;
-
     setImporting(true);
     try {
       const updated = await invoke<Library>("import_folder", { folderPath });
@@ -138,16 +170,30 @@ export default function App() {
     }
   }, []);
 
+  const handleOpenBook = useCallback(async (book: Book) => {
+    try {
+      await invoke("open_reader_window", {
+        bookId: book.id,
+        title: book.title,
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
   const handleRemoveBook = useCallback(async (bookId: string) => {
     const updated = await invoke<Library>("remove_book", { bookId });
     setLibrary(updated);
   }, []);
 
-  const handleRemoveFolder = useCallback(async (folderPath: string) => {
-    const updated = await invoke<Library>("remove_folder", { folderPath });
-    setLibrary(updated);
-    if (selectedFolder === folderPath) setSelectedFolder(null);
-  }, [selectedFolder]);
+  const handleRemoveFolder = useCallback(
+    async (folderPath: string) => {
+      const updated = await invoke<Library>("remove_folder", { folderPath });
+      setLibrary(updated);
+      if (selectedFolder === folderPath) setSelectedFolder(null);
+    },
+    [selectedFolder]
+  );
 
   const handleRefreshFolder = useCallback(async (folderPath: string) => {
     setLoading(true);
@@ -160,7 +206,8 @@ export default function App() {
   }, []);
 
   const visibleBooks = library.books.filter((b) => {
-    const inFolder = selectedFolder === null || b.source_folder === selectedFolder;
+    const inFolder =
+      selectedFolder === null || b.source_folder === selectedFolder;
     const matchSearch =
       search === "" ||
       b.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -180,11 +227,7 @@ export default function App() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <button
-          className="add-btn"
-          onClick={handleAddFolder}
-          disabled={importing}
-        >
+        <button className="add-btn" onClick={handleAddFolder} disabled={importing}>
           {importing ? "导入中…" : "+ 添加文件夹"}
         </button>
       </div>
@@ -218,20 +261,39 @@ export default function App() {
                   : "尝试更改搜索词或选择其他文件夹"}
               </p>
               {library.books.length === 0 && (
-                <button className="empty-add-btn" onClick={handleAddFolder} disabled={importing}>
+                <button
+                  className="empty-add-btn"
+                  onClick={handleAddFolder}
+                  disabled={importing}
+                >
                   {importing ? "导入中…" : "添加文件夹"}
                 </button>
               )}
             </div>
           ) : (
-            <div className="book-grid">
-              {visibleBooks.map((book) => (
-                <BookCard key={book.id} book={book} onRemove={handleRemoveBook} />
-              ))}
-            </div>
+            <>
+              <p className="hint-text">双击书籍打开阅读</p>
+              <div className="book-grid">
+                {visibleBooks.map((book) => (
+                  <BookCard
+                    key={book.id}
+                    book={book}
+                    onRemove={handleRemoveBook}
+                    onOpen={handleOpenBook}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>
     </div>
   );
+}
+
+export default function App() {
+  if (READER_BOOK_ID && READER_BOOK_TITLE) {
+    return <Reader bookId={READER_BOOK_ID} bookTitle={READER_BOOK_TITLE} />;
+  }
+  return <Bookshelf />;
 }

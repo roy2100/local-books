@@ -397,15 +397,27 @@ body {
   padding: 10px 14px;
   background: transparent;
   border: none;
-  color: var(--danger);
+  color: var(--text-primary);
   font-size: 13px;
   text-align: left;
   cursor: pointer;
   transition: background 0.1s;
 }
 
+.context-menu button.danger {
+  color: var(--danger);
+}
+
 .context-menu button:hover {
   background: var(--bg-tertiary);
+}
+
+/* Hint text above book grid */
+.hint-text {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-bottom: 16px;
+  margin-top: -4px;
 }
 
 /* Empty state */
