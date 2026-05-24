@@ -155,6 +155,8 @@ export default function Reader({ bookId, bookTitle }: Props) {
     setProgress(0);
     setCurrentHref("");
 
+    let cancelled = false;
+
     const book = ePub(`epub://localhost/${bookId}/book.epub`);
     bookRef.current = book;
 
@@ -175,13 +177,13 @@ export default function Reader({ bookId, bookTitle }: Props) {
     rendition.themes.select("reader");
 
     rendition.display().then(() => {
-      setLoading(false);
+      if (!cancelled) setLoading(false);
     }).catch((e: unknown) => {
-      setError(String(e));
-      setLoading(false);
+      if (!cancelled) { setError(String(e)); setLoading(false); }
     });
 
     book.ready.then(async () => {
+      if (cancelled) return;
       setToc(book.navigation.toc as NavItem[]);
       await book.locations.generate(1600);
     }).catch(() => {
@@ -194,11 +196,11 @@ export default function Reader({ bookId, bookTitle }: Props) {
     });
 
     book.on("openFailed", (e: unknown) => {
-      setError(`无法打开书籍：${String(e)}`);
-      setLoading(false);
+      if (!cancelled) { setError(`无法打开书籍：${String(e)}`); setLoading(false); }
     });
 
     return () => {
+      cancelled = true;
       if (prevBlobUrlRef.current) URL.revokeObjectURL(prevBlobUrlRef.current);
       book.destroy();
       bookRef.current = null;
