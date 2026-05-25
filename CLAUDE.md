@@ -95,24 +95,47 @@ Exposed Tauri commands: `pick_folder`, `import_folder`, `get_library`, `remove_b
 
 ### Frontend (`src/`)
 
-- `App.tsx` — bookshelf root; owns `Library` state; detects reader window via `window.__READER_BOOK_ID__`
-- `BookCard` — cover card (no right-click menu; drag region handled via `data-tauri-drag-region`)
-- `FolderSidebar` — watched folders panel
-- `Reader.tsx` — EPUB reader powered by foliate-js
-- `Reader.css` — reader-specific styles
-- `readerTheme.ts` — `Theme` type, `BG` color map, `makeThemeCSS(theme, fontSize)` for foliate-js `setStyles`
-- `utils.ts` — shared `Book`/`Library` interfaces, `filterBooks()` helper
+```
+src/
+├── App.tsx              — 路由入口：检测 window.__READER_BOOK_ID__ 决定渲染书架或阅读器
+├── App.css              — 书架全局样式
+├── main.tsx             — React 挂载点
+├── types/
+│   └── foliate.ts       — 所有 foliate-js 接口类型（NavItem、FoliateViewElement 等）
+├── components/          — 书架 UI 组件
+│   ├── Bookshelf.tsx    — 书架主体，持有 Library 状态，调用 Tauri 命令
+│   ├── BookCard.tsx     — 单本书卡片（双击打开）
+│   └── FolderSidebar.tsx — 监控文件夹侧边栏
+├── reader/              — 阅读器 feature，所有阅读器相关文件
+│   ├── Reader.tsx       — 阅读器组件（组合 hooks + 子组件）
+│   ├── Reader.css       — 阅读器样式
+│   ├── ReaderSettings.tsx — 设置面板（主题/字体/排版）
+│   ├── TocRow.tsx       — 目录列表行（递归）
+│   ├── FootnotePopup.tsx — 脚注浮窗（Floating UI）
+│   ├── readerTheme.ts   — Theme 类型、BG 色表、makeThemeCSS()
+│   └── hooks/
+│       ├── useFoliate.ts      — foliate-js 初始化、relocate 事件、脚注处理
+│       └── useAutoHideUI.ts   — 顶栏/底栏自动隐藏计时器
+└── lib/                 — 纯逻辑，无 React 依赖
+    ├── utils.ts         — Book/Library 接口、filterBooks()
+    ├── t2s.ts           — 繁简转换（convertText、convertDoc）
+    └── t2sTable.ts      — 繁简字符映射表
+```
 
 **Reader architecture** (foliate-js):
 
 ```
-Reader mounts <foliate-view> web component (vendor/foliate-js/view.js)
-view.open("epub://localhost/{bookId}/book.epub")  ← Rust serves raw .epub
-foliate-js parses EPUB internally, exposes view.book.toc
-view.renderer.setStyles(css)  ← applies theme + font-size
-view emits "relocate" DOM event → Reader updates progress + currentHref
+Reader.tsx
+├── useFoliate()  — 创建 <foliate-view>，open() 书籍，监听 relocate/load/link 事件
+│                   返回 viewRef、toc、progress、currentHref、fnVisible 等
+├── useAutoHideUI() — 鼠标静止 3s 后隐藏顶/底栏
+└── JSX
+    ├── ReaderSettings  — 设置面板
+    ├── TocRow          — 目录列表
+    └── FootnotePopup   — 脚注弹窗
 ```
 
+- foliate-view 通过 `epub://localhost/{bookId}/book.epub` 加载书籍（Rust 协议处理器返回原始 .epub）
 - Navigation: `view.prev()` / `view.next()` / `view.goTo(href)` — no spine index needed
 - Theme/font-size applied via `view.renderer.setStyles()` (no reload needed)
 - Progress from `relocate` event `detail.fraction` (0–1) or `detail.location.current/total`
@@ -155,4 +178,4 @@ Dark mode: bookshelf uses `@media (prefers-color-scheme: dark)` in App.css; read
 **`overflow-y: auto` + `::before` highlight line** — the pseudo-element scrolls away with content. Use non-uniform `border-top` (brighter) instead of `::before`.
 `overflow: hidden` is safe (static clip) — `::before { top: 0 }` won't be clipped.
 
-**foliate-js scrollbar + reader styles** — pass all reader CSS (including `::-webkit-scrollbar` rules) via `view.renderer.setStyles(css)` through `makeThemeCSS()` in `readerTheme.ts`. This is the single source of truth for the reader's visual appearance; do not inject styles by other means.
+**foliate-js scrollbar + reader styles** — pass all reader CSS (including `::-webkit-scrollbar` rules) via `view.renderer.setStyles(css)` through `makeThemeCSS()` in `reader/readerTheme.ts`. This is the single source of truth for the reader's visual appearance; do not inject styles by other means.
