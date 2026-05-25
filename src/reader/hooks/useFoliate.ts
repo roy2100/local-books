@@ -42,6 +42,7 @@ export function useFoliate({ bookId, themeRef, flowRef, t2sRef }: UseFoliateProp
   const viewRef = useRef<FoliateViewElement | null>(null);
   const fnPopupRef = useRef<HTMLDivElement | null>(null);
   const fnViewRef = useRef<FoliateViewElement | null>(null);
+  const pendingAnchorRef = useRef<DOMRect | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -110,6 +111,8 @@ export function useFoliate({ bookId, themeRef, flowRef, t2sRef }: UseFoliateProp
       if (contentHeight > 0 && fnPopupRef.current) {
         fnPopupRef.current.style.height = `${Math.max(40, Math.min(200, contentHeight))}px`;
       }
+      // Set anchor AFTER height is in DOM so Floating UI measures the correct size on first update()
+      setFnAnchorRect(pendingAnchorRef.current);
       setFnVisible(true);
     };
 
@@ -122,12 +125,15 @@ export function useFoliate({ bookId, themeRef, flowRef, t2sRef }: UseFoliateProp
         const frame = a.ownerDocument?.defaultView?.frameElement;
         const frameRect = frame?.getBoundingClientRect() ?? new DOMRect();
         const aRect = a.getBoundingClientRect();
-        setFnAnchorRect(new DOMRect(
+        // Store rect; actual setFnAnchorRect is deferred to handleFnRender after height is set
+        pendingAnchorRef.current = new DOMRect(
           frameRect.left + aRect.left,
           frameRect.top + aRect.top,
           aRect.width,
           aRect.height,
-        ));
+        );
+      } else {
+        pendingAnchorRef.current = null;
       }
       fnHandler.handle(view.book, e);
     };

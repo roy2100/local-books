@@ -7,7 +7,7 @@ import {
   FloatingArrow,
   FloatingPortal,
 } from "@floating-ui/react";
-import { useRef, useEffect, useCallback, type RefObject } from "react";
+import { useRef, useLayoutEffect, useCallback, type RefObject } from "react";
 import type { Theme } from "./readerTheme";
 
 interface Props {
@@ -31,7 +31,11 @@ export function FootnotePopup({ anchorRect, visible, theme, contentRef, onClose 
     ],
   });
 
-  useEffect(() => {
+  // useLayoutEffect: runs synchronously after DOM mutations but before browser paint,
+  // so floatingStyles are correct on the very first frame the popup becomes visible.
+  // anchorRect is set only after the popup height is already written to the DOM
+  // (see handleFnRender in useFoliate), so update() reads the real size here.
+  useLayoutEffect(() => {
     refs.setReference(anchorRect ? { getBoundingClientRect: () => anchorRect } : null);
     if (anchorRect) update();
   }, [anchorRect, refs, update]);
