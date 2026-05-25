@@ -4,13 +4,16 @@ import {
   ChevronLeft,
   ChevronRight,
   TableOfContents,
+  Volume2,
 } from "lucide-react";
 import { FootnotePopup } from "./FootnotePopup";
 import { ReaderSettings } from "./ReaderSettings";
+import { TTSPanel } from "./TTSPanel";
 import { TocRow } from "./TocRow";
 import { BG, makeThemeCSS, type Theme, type FontStyle, type WritingMode } from "./readerTheme";
 import { useFoliate } from "./hooks/useFoliate";
 import { useAutoHideUI } from "./hooks/useAutoHideUI";
+import { useTTS } from "./hooks/useTTS";
 import { convertDoc } from "../lib/t2s";
 import "./Reader.css";
 
@@ -27,6 +30,7 @@ export default function Reader({ bookId, bookTitle }: Props) {
   const [writingMode, setWritingMode] = useState<WritingMode | null>("horizontal");
   const [showSettings, setShowSettings] = useState(false);
   const [showToc, setShowToc] = useState(false);
+  const [showTTS, setShowTTS] = useState(false);
   const [t2sEnabled, setT2SEnabled] = useState(false);
 
   const themeRef = useRef({ theme, fontSize, fontStyle, writingMode });
@@ -41,6 +45,13 @@ export default function Reader({ bookId, bookTitle }: Props) {
     toc, currentHref, progress, loading, error,
     fnVisible, setFnVisible, fnAnchorRect, setFnAnchorRect,
   } = useFoliate({ bookId, themeRef, flowRef, t2sRef });
+
+  const tts = useTTS();
+
+  const getPageText = useCallback(() => {
+    const contents = viewRef.current?.renderer?.getContents?.() ?? [];
+    return contents.map(({ doc }) => doc?.body?.innerText ?? "").join("\n").trim();
+  }, []);
 
   const { showUI, bumpUI } = useAutoHideUI(showSettings || showToc);
 
@@ -142,8 +153,15 @@ export default function Reader({ bookId, bookTitle }: Props) {
         )}
         <span className="reader-book-title" data-tauri-drag-region>{bookTitle}</span>
         <button
+          className={`reader-tts-btn ${showTTS ? "active" : ""}`}
+          onClick={(e) => { e.stopPropagation(); setShowTTS((s) => !s); setShowSettings(false); setShowToc(false); }}
+          title="朗读"
+        >
+          <Volume2 aria-hidden="true" />
+        </button>
+        <button
           className="reader-aa-btn"
-          onClick={(e) => { e.stopPropagation(); setShowSettings((s) => !s); setShowToc(false); }}
+          onClick={(e) => { e.stopPropagation(); setShowSettings((s) => !s); setShowToc(false); setShowTTS(false); }}
           title="阅读设置"
         >
           <ALargeSmall aria-hidden="true" />
@@ -178,6 +196,25 @@ export default function Reader({ bookId, bookTitle }: Props) {
             fontStyle={fontStyle} setFontStyle={setFontStyle}
             writingMode={writingMode} setWritingMode={setWritingMode}
             t2sEnabled={t2sEnabled} setT2SEnabled={setT2SEnabled}
+          />
+        </>
+      )}
+
+      {/* TTS panel */}
+      {showTTS && (
+        <>
+          <div className="settings-backdrop" onClick={() => setShowTTS(false)} />
+          <TTSPanel
+            theme={theme}
+            status={tts.status}
+            voice={tts.voice}
+            setVoice={tts.setVoice}
+            rate={tts.rate}
+            setRate={tts.setRate}
+            onPlay={() => tts.play(getPageText())}
+            onPause={tts.pause}
+            onResume={tts.resume}
+            onStop={tts.stop}
           />
         </>
       )}

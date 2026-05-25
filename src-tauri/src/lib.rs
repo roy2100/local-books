@@ -253,6 +253,23 @@ async fn open_reader_window(
     Ok(())
 }
 
+#[tauri::command]
+async fn tts_synthesize(text: String, voice: String, rate: i32, pitch: i32) -> Result<String, String> {
+    use msedge_tts::tts::client::tokio_runtime::connect_async;
+    use msedge_tts::tts::SpeechConfig;
+
+    let config = SpeechConfig {
+        voice_name: voice,
+        audio_format: "audio-24khz-48kbitrate-mono-mp3".to_string(),
+        pitch,
+        rate,
+        volume: 0,
+    };
+    let mut client = connect_async().await.map_err(|e| e.to_string())?;
+    let audio = client.synthesize(&text, &config).await.map_err(|e| e.to_string())?;
+    Ok(STANDARD.encode(&audio.audio_bytes))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -267,6 +284,7 @@ pub fn run() {
             remove_folder,
             refresh_folder,
             open_reader_window,
+            tts_synthesize,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
