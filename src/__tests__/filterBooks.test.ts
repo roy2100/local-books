@@ -88,6 +88,16 @@ describe("filterBooks", () => {
     expect(filterBooks(books, null, "python")).toHaveLength(0);
   });
 
+  it("matches Traditional title with Simplified query", () => {
+    const books = [book({ title: "繁體中文小說" })];
+    expect(filterBooks(books, null, "繁体中文")).toHaveLength(1);
+  });
+
+  it("matches Simplified title with Traditional query", () => {
+    const books = [book({ title: "繁体中文小说" })];
+    expect(filterBooks(books, null, "繁體中文")).toHaveLength(1);
+  });
+
   // ── Combined filters ──────────────────────────────────────────────────────
 
   it("applies folder and search together", () => {

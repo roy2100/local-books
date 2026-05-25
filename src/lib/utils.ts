@@ -1,3 +1,5 @@
+import { convertText } from './t2s';
+
 export interface Book {
   id: string;
   title: string;
@@ -18,13 +20,13 @@ export function filterBooks(
   selectedFolder: string | null,
   search: string,
 ): Book[] {
-  const q = search.toLowerCase();
+  const q = convertText(search.toLowerCase());
   return books.filter((b) => {
     const inFolder = selectedFolder === null || b.source_folder === selectedFolder;
     const matchSearch =
       q === "" ||
-      b.title.toLowerCase().includes(q) ||
-      b.author.toLowerCase().includes(q);
+      convertText(b.title.toLowerCase()).includes(q) ||
+      convertText(b.author.toLowerCase()).includes(q);
     return inFolder && matchSearch;
   });
 }
