@@ -194,7 +194,7 @@ export default function Reader({ bookId, bookTitle }: Props) {
     view.addEventListener("load", handleLoad);
 
     const fnHandler = new FootnoteHandler();
-    fnHandler.addEventListener('before-render', (e: Event) => {
+    const handleFnBeforeRender = (e: Event) => {
       const { view: fnView } = (e as CustomEvent<FootnoteBeforeRenderDetail>).detail;
       // Close previous footnote view
       if (fnViewRef.current) {
@@ -213,15 +213,17 @@ export default function Reader({ bookId, bookTitle }: Props) {
       // Override padding/background for compact popup; transparent lets glass effect show through
       const fnCSS = `html,body{background:transparent!important;padding:10px 16px!important;margin:0!important;max-width:none!important;font-size:13px!important;}p,li,dt,dd,blockquote,td,th{font-size:1em!important;}::-webkit-scrollbar{display:none!important;}`;
       fnView.renderer?.setStyles?.([baseCSS, fnCSS]);
-    });
-    fnHandler.addEventListener('render', (e: Event) => {
+    };
+    const handleFnRender = (e: Event) => {
       const { contentHeight } = (e as CustomEvent<FootnoteRenderDetail>).detail;
       if (contentHeight > 0 && fnPopupRef.current) {
         fnPopupRef.current.style.height = `${Math.max(40, Math.min(200, contentHeight))}px`;
       }
       setFnVisible(true);
-    });
-    view.addEventListener('link', (e: Event) => {
+    };
+    fnHandler.addEventListener('before-render', handleFnBeforeRender);
+    fnHandler.addEventListener('render', handleFnRender);
+    const handleLink = (e: Event) => {
       const { a } = (e as CustomEvent<FoliateLinkDetail>).detail;
       if (a) {
         const frame = a.ownerDocument?.defaultView?.frameElement;
@@ -235,7 +237,8 @@ export default function Reader({ bookId, bookTitle }: Props) {
         ));
       }
       fnHandler.handle(view.book, e);
-    });
+    };
+    view.addEventListener('link', handleLink);
 
     const openBook = async () => {
       try {
@@ -261,6 +264,9 @@ export default function Reader({ bookId, bookTitle }: Props) {
       cancelled = true;
       view.removeEventListener("relocate", handleRelocate);
       view.removeEventListener("load", handleLoad);
+      view.removeEventListener("link", handleLink);
+      fnHandler.removeEventListener("before-render", handleFnBeforeRender);
+      fnHandler.removeEventListener("render", handleFnRender);
       view.close();
       view.remove();
       if (viewRef.current === view) viewRef.current = null;
@@ -310,15 +316,17 @@ export default function Reader({ bookId, bookTitle }: Props) {
     }
   }, [t2sEnabled]);
 
+  // vertical layout: left=next (columns flow right→left), right=prev; horizontal: always LTR
+  const getIsVertical = useCallback(() => {
+    const { writingMode } = themeRef.current;
+    const rendererVertical = viewRef.current?.renderer?.vertical === true;
+    return writingMode === "vertical" || (writingMode !== "horizontal" && rendererVertical);
+  }, []);
+
   // Keyboard navigation
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const { writingMode } = themeRef.current;
-      // vertical layout: left = next (columns flow right→left), right = prev
-      // horizontal layout forced: always LTR, bypass book.dir
-      // auto: trust renderer's detected writing-mode
-      const rendererVertical = viewRef.current?.renderer?.vertical === true;
-      const isVertical = writingMode === "vertical" || (writingMode !== "horizontal" && rendererVertical);
+      const isVertical = getIsVertical();
       if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
         e.preventDefault();
         void (isVertical ? viewRef.current?.prev() : viewRef.current?.next());
@@ -331,7 +339,7 @@ export default function Reader({ bookId, bookTitle }: Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [getIsVertical]);
 
   // Auto-hide UI chrome
   const bumpUI = useCallback(() => {
@@ -350,23 +358,17 @@ export default function Reader({ bookId, bookTitle }: Props) {
   useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current); }, []);
 
   const handlePrev = useCallback(() => {
-    const { writingMode } = themeRef.current;
-    const rendererVertical = viewRef.current?.renderer?.vertical === true;
-    const isVertical = writingMode === "vertical" || (writingMode !== "horizontal" && rendererVertical);
     // 竖排：左=向前(next)；横排：左=向后(prev)。用 next/prev 而非 goLeft/goRight，
     // 避免 foliate-js 用书籍原始 RTL 元数据覆盖强制横排时的方向判断。
-    void (isVertical ? viewRef.current?.next() : viewRef.current?.prev());
-  }, []);
+    void (getIsVertical() ? viewRef.current?.next() : viewRef.current?.prev());
+  }, [getIsVertical]);
 
   const handleNext = useCallback(() => {
-    const { writingMode } = themeRef.current;
-    const rendererVertical = viewRef.current?.renderer?.vertical === true;
-    const isVertical = writingMode === "vertical" || (writingMode !== "horizontal" && rendererVertical);
-    void (isVertical ? viewRef.current?.prev() : viewRef.current?.next());
-  }, []);
+    void (getIsVertical() ? viewRef.current?.prev() : viewRef.current?.next());
+  }, [getIsVertical]);
 
   const navigateTo = useCallback((href: string) => {
-    viewRef.current?.goTo(href).catch(() => {});
+    viewRef.current?.goTo(href).catch((e) => console.error('[Reader] goTo failed:', e));
     setShowToc(false);
   }, []);
 
