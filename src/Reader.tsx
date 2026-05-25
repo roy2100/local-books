@@ -7,6 +7,9 @@ import {
 } from "lucide-react";
 // @ts-ignore foliate-js ships plain JavaScript modules without TypeScript declarations.
 import "../vendor/foliate-js/view.js";
+// @ts-ignore
+import { FootnoteHandler } from "../vendor/foliate-js/footnotes.js";
+import { FootnotePopup } from "./FootnotePopup";
 import { BG, makeThemeCSS, type Theme, type FontStyle, type WritingMode } from "./readerTheme";
 import { convertDoc } from "./t2s";
 import "./Reader.css";
@@ -116,6 +119,11 @@ export default function Reader({ bookId, bookTitle }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [t2sEnabled, setT2SEnabled] = useState(false);
 
+  const [fnVisible, setFnVisible] = useState(false);
+  const [fnAnchorRect, setFnAnchorRect] = useState<DOMRect | null>(null);
+  const fnPopupRef = useRef<HTMLDivElement>(null);
+  const fnViewRef = useRef<FoliateViewElement | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<FoliateViewElement | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -167,6 +175,55 @@ export default function Reader({ bookId, bookTitle }: Props) {
     };
     view.addEventListener("load", handleLoad);
 
+    const fnHandler = new FootnoteHandler();
+    fnHandler.addEventListener('before-render', (e: Event) => {
+      const { view: fnView } = (e as CustomEvent).detail;
+      // Close previous footnote view
+      if (fnViewRef.current) {
+        (fnViewRef.current as any).close?.();
+        fnViewRef.current.remove();
+        fnViewRef.current = null;
+      }
+      setFnVisible(false);
+      if (fnPopupRef.current) fnPopupRef.current.style.height = '';
+      // Must attach to DOM before goTo() — WKWebView won't load iframe.src on detached elements
+      fnViewRef.current = fnView;
+      fnPopupRef.current?.appendChild(fnView);
+      fnView.renderer?.setAttribute('flow', 'scrolled');
+      const { theme: t, fontSize: fs, fontStyle: fst } = themeRef.current;
+      const baseCSS = makeThemeCSS(t, fs, window.location.origin, fst, 'horizontal');
+      // Override padding/background for compact popup; transparent lets glass effect show through
+      const fnCSS = `html,body{background:transparent!important;padding:10px 16px!important;margin:0!important;max-width:none!important;font-size:13px!important;}p,li,dt,dd,blockquote,td,th{font-size:1em!important;}::-webkit-scrollbar{display:none!important;}`;
+      fnView.renderer?.setStyles?.([baseCSS, fnCSS]);
+    });
+    fnHandler.addEventListener('render', () => {
+      // Sync-measure natural content height from iframe doc before making popup visible
+      const contents = (fnViewRef.current?.renderer as any)?.getContents?.() ?? [];
+      const doc = (contents[0] as any)?.doc as Document | undefined;
+      if (doc?.body && fnPopupRef.current) {
+        const h = doc.body.scrollHeight;
+        if (h > 0) {
+          fnPopupRef.current.style.height = `${Math.max(40, Math.min(200, h))}px`;
+        }
+      }
+      setFnVisible(true);
+    });
+    view.addEventListener('link', (e: Event) => {
+      const a = (e as CustomEvent).detail?.a as Element | null;
+      if (a) {
+        const frame = a.ownerDocument?.defaultView?.frameElement;
+        const frameRect = frame?.getBoundingClientRect() ?? new DOMRect();
+        const aRect = a.getBoundingClientRect();
+        setFnAnchorRect(new DOMRect(
+          frameRect.left + aRect.left,
+          frameRect.top + aRect.top,
+          aRect.width,
+          aRect.height,
+        ));
+      }
+      fnHandler.handle((view as any).book, e);
+    });
+
     const openBook = async () => {
       try {
         await view.open(`epub://localhost/${bookId}/book.epub`);
@@ -194,6 +251,13 @@ export default function Reader({ bookId, bookTitle }: Props) {
       view.close();
       view.remove();
       if (viewRef.current === view) viewRef.current = null;
+      if (fnViewRef.current) {
+        (fnViewRef.current as any).close?.();
+        fnViewRef.current.remove();
+        fnViewRef.current = null;
+      }
+      setFnVisible(false);
+      setFnAnchorRect(null);
     };
   }, [bookId]);
 
@@ -465,6 +529,23 @@ export default function Reader({ bookId, bookTitle }: Props) {
         </div>
         <span className="progress-label">{progress}%</span>
       </div>
+
+      {/* Footnote popup */}
+      <FootnotePopup
+        anchorRect={fnAnchorRect}
+        visible={fnVisible}
+        theme={theme}
+        contentRef={fnPopupRef}
+        onClose={() => {
+          if (fnViewRef.current) {
+            (fnViewRef.current as any).close?.();
+            fnViewRef.current.remove();
+            fnViewRef.current = null;
+          }
+          setFnVisible(false);
+          setFnAnchorRect(null);
+        }}
+      />
 
       {error && (
         <div className="reader-error">

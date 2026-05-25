@@ -41,7 +41,12 @@ export function makeThemeCSS(theme: Theme, fontSize: number, fontBase: string = 
     sepia: "rgba(80,50,20,0.36)",
     dark: "rgba(255,255,255,0.32)",
   }[theme];
-  return `${fontFaceCSS}
+  return `@namespace epub "http://www.idpf.org/2007/ops";
+${fontFaceCSS}
+    aside[epub|type~="footnote"],
+    aside[epub|type~="endnote"],
+    aside[epub|type~="rearnote"],
+    aside[epub|type~="note"] { display: none !important; }
     html, body { background: ${BG[theme]} !important; color: ${text} !important; }
     html, body,
     p, div, span, h1, h2, h3, h4, h5, h6,

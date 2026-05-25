@@ -583,3 +583,52 @@
 .reader-settings--dark::before {
   background: rgba(255, 255, 255, 0.15);
 }
+
+/* ── Footnote popup ──────────────────────────────────────── */
+.footnote-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+}
+
+/* Outer wrapper: Floating UI positioning container */
+.footnote-popup-outer {
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 200;
+}
+
+.footnote-popup-outer--visible {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* Inner popup: visual box with background + clipping */
+.footnote-popup {
+  width: 300px;
+  height: auto;   /* set by JS via scrollHeight; falls back to 0 before render */
+  max-height: 200px;
+  overflow: auto;
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* IE/Edge */
+  border-radius: 10px;
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15), 0 1px 0 rgba(255,255,255,0.25) inset;
+}
+.footnote-popup::-webkit-scrollbar { display: none; }
+
+.footnote-popup--light { background: rgba(250, 249, 246, 0.82); }
+.footnote-popup--sepia { background: rgba(246, 240, 230, 0.84); }
+.footnote-popup--dark  { background: rgba(36, 36, 38, 0.88); }
+
+/* FloatingArrow SVG fill — matches popup background */
+.footnote-arrow--light { fill: rgba(250, 249, 246, 0.82); }
+.footnote-arrow--sepia { fill: rgba(246, 240, 230, 0.84); }
+.footnote-arrow--dark  { fill: rgba(36, 36, 38, 0.88); }
+
+.footnote-popup foliate-view {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
