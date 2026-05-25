@@ -214,11 +214,11 @@ export default function Reader({ bookId, bookTitle }: Props) {
       const isVertical = writingMode === "vertical" || (writingMode !== "horizontal" && rendererVertical);
       if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
         e.preventDefault();
-        void (isVertical ? viewRef.current?.prev() : viewRef.current?.goRight());
+        void (isVertical ? viewRef.current?.prev() : viewRef.current?.next());
       }
       if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
         e.preventDefault();
-        void (isVertical ? viewRef.current?.next() : viewRef.current?.goLeft());
+        void (isVertical ? viewRef.current?.next() : viewRef.current?.prev());
       }
       if (e.key === "Escape") { setShowToc(false); setShowSettings(false); }
     };
@@ -246,14 +246,16 @@ export default function Reader({ bookId, bookTitle }: Props) {
     const { writingMode } = themeRef.current;
     const rendererVertical = viewRef.current?.renderer?.vertical === true;
     const isVertical = writingMode === "vertical" || (writingMode !== "horizontal" && rendererVertical);
-    void (isVertical ? viewRef.current?.next() : viewRef.current?.goLeft());
+    // 竖排：左=向前(next)；横排：左=向后(prev)。用 next/prev 而非 goLeft/goRight，
+    // 避免 foliate-js 用书籍原始 RTL 元数据覆盖强制横排时的方向判断。
+    void (isVertical ? viewRef.current?.next() : viewRef.current?.prev());
   }, []);
 
   const handleNext = useCallback(() => {
     const { writingMode } = themeRef.current;
     const rendererVertical = viewRef.current?.renderer?.vertical === true;
     const isVertical = writingMode === "vertical" || (writingMode !== "horizontal" && rendererVertical);
-    void (isVertical ? viewRef.current?.prev() : viewRef.current?.goRight());
+    void (isVertical ? viewRef.current?.prev() : viewRef.current?.next());
   }, []);
 
   const navigateTo = useCallback((href: string) => {
@@ -396,7 +398,7 @@ export default function Reader({ bookId, bookTitle }: Props) {
       <button
         className={`page-nav page-nav--prev ${showUI ? "visible" : ""}`}
         onClick={handlePrev}
-        aria-label="上一章"
+        aria-label="上一页"
       >
         <ChevronLeft aria-hidden="true" />
       </button>
@@ -411,7 +413,7 @@ export default function Reader({ bookId, bookTitle }: Props) {
       <button
         className={`page-nav page-nav--next ${showUI ? "visible" : ""}`}
         onClick={handleNext}
-        aria-label="下一章"
+        aria-label="下一页"
       >
         <ChevronRight aria-hidden="true" />
       </button>
