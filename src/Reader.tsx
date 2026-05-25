@@ -8,6 +8,7 @@ import {
 // @ts-ignore foliate-js ships plain JavaScript modules without TypeScript declarations.
 import "../vendor/foliate-js/view.js";
 import { BG, makeThemeCSS, type Theme, type FontStyle, type WritingMode } from "./readerTheme";
+import { convertDoc } from "./t2s";
 import "./Reader.css";
 
 interface NavItem {
@@ -28,6 +29,7 @@ interface FoliateRenderer extends HTMLElement {
   prev?: (distance?: number) => Promise<void>;
   next?: (distance?: number) => Promise<void>;
   reloadSection?: () => Promise<void>;
+  getContents?: () => Array<{ doc: Document; index: number }>;
   readonly vertical?: boolean;
 }
 
@@ -106,12 +108,13 @@ export default function Reader({ bookId, bookTitle }: Props) {
   const [fontSize, setFontSize] = useState(18);
   const [flow, setFlow] = useState<"scrolled" | "paginated">("paginated");
   const [fontStyle, setFontStyle] = useState<FontStyle>("serif");
-  const [writingMode, setWritingMode] = useState<WritingMode | null>(null);
+  const [writingMode, setWritingMode] = useState<WritingMode | null>("horizontal");
   const [showSettings, setShowSettings] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [showUI, setShowUI] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [t2sEnabled, setT2SEnabled] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<FoliateViewElement | null>(null);
@@ -120,6 +123,8 @@ export default function Reader({ bookId, bookTitle }: Props) {
   useEffect(() => { themeRef.current = { theme, fontSize, fontStyle, writingMode }; }, [theme, fontSize, fontStyle, writingMode]);
   const flowRef = useRef(flow);
   useEffect(() => { flowRef.current = flow; }, [flow]);
+  const t2sRef = useRef(false);
+  useEffect(() => { t2sRef.current = t2sEnabled; }, [t2sEnabled]);
 
   // foliate-js initialization
   useEffect(() => {
@@ -155,6 +160,13 @@ export default function Reader({ bookId, bookTitle }: Props) {
 
     view.addEventListener("relocate", handleRelocate);
 
+    const handleLoad = (event: Event) => {
+      if (!t2sRef.current) return;
+      const doc = (event as CustomEvent<{ doc: Document }>).detail?.doc;
+      if (doc?.body) convertDoc(doc);
+    };
+    view.addEventListener("load", handleLoad);
+
     const openBook = async () => {
       try {
         await view.open(`epub://localhost/${bookId}/book.epub`);
@@ -178,6 +190,7 @@ export default function Reader({ bookId, bookTitle }: Props) {
     return () => {
       cancelled = true;
       view.removeEventListener("relocate", handleRelocate);
+      view.removeEventListener("load", handleLoad);
       view.close();
       view.remove();
       if (viewRef.current === view) viewRef.current = null;
@@ -202,6 +215,22 @@ export default function Reader({ bookId, bookTitle }: Props) {
   useEffect(() => {
     viewRef.current?.renderer?.setAttribute("flow", flow);
   }, [flow]);
+
+  // Apply or remove t2s on the currently displayed section when the toggle changes.
+  useEffect(() => {
+    const renderer = viewRef.current?.renderer;
+    if (!renderer) return;
+    if (t2sEnabled) {
+      // Convert current section's DOM directly — load event won't fire for same-section reload.
+      const contents = renderer.getContents?.() ?? [];
+      for (const { doc } of contents) {
+        if (doc?.body) convertDoc(doc);
+      }
+    } else {
+      // Reload from blob URL to restore original content.
+      void renderer.reloadSection?.();
+    }
+  }, [t2sEnabled]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -388,6 +417,17 @@ export default function Reader({ bookId, bookTitle }: Props) {
                   onClick={() => setWritingMode("vertical")}
                   title="竖排"
                 >竖排</button>
+              </div>
+            </div>
+            <div className="settings-divider" />
+            <div className="settings-row">
+              <span className="settings-label">繁简转换</span>
+              <div className="flow-chips">
+                <button
+                  className={`flow-chip ${t2sEnabled ? "active" : ""}`}
+                  onClick={() => setT2SEnabled(s => !s)}
+                  title="繁体转简体"
+                >繁→简</button>
               </div>
             </div>
           </div>
