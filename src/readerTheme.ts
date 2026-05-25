@@ -25,24 +25,10 @@ export function makeThemeCSS(theme: Theme, fontSize: number, fontBase: string = 
       font-style: normal;
       font-display: block;
     }
-    @font-face {
-      font-family: 'Source Han Sans SC';
-      src: url('${fontBase}/fonts/SourceHanSansSC-Regular.woff2') format('woff2');
-      font-weight: 400;
-      font-style: normal;
-      font-display: block;
-    }
-    @font-face {
-      font-family: 'Source Han Sans SC';
-      src: url('${fontBase}/fonts/SourceHanSansSC-Medium.woff2') format('woff2');
-      font-weight: 500 700;
-      font-style: normal;
-      font-display: block;
-    }
   ` : "";
   const fontFamily = fontStyle === "serif"
     ? "'Source Han Serif SC', 'PingFang SC', Georgia, serif"
-    : "'Source Han Sans SC', 'PingFang SC', -apple-system, sans-serif";
+    : "'PingFang SC', -apple-system, sans-serif";
   const text = { light: "#1a1a1a", sepia: "#3b2d1f", dark: "#dcdcdc" }[theme];
   const link = { light: "#1a73e8", sepia: "#7a5c00", dark: "#7eb8f7" }[theme];
   const scrollThumb = {
@@ -57,9 +43,15 @@ export function makeThemeCSS(theme: Theme, fontSize: number, fontBase: string = 
   }[theme];
   return `${fontFaceCSS}
     html, body { background: ${BG[theme]} !important; color: ${text} !important; }
+    html, body,
+    p, div, span, h1, h2, h3, h4, h5, h6,
+    li, dt, dd, blockquote, figcaption, caption,
+    td, th, article, section, nav, aside, pre {
+      font-family: ${fontFamily} !important;
+    }
+    p, li, dt, dd, blockquote, td, th { font-size: 1em !important; }
     body {
       font-size: ${fontSize}px !important;
-      font-family: ${fontFamily} !important;
       ${writingMode ? `writing-mode: ${vertical ? "vertical-rl" : "horizontal-tb"} !important;` : ""}
       line-height: ${vertical ? "2.0" : "1.85"} !important;
       ${vertical ? "" : "max-width: 700px !important; margin: 0 auto !important; padding: 48px 32px 80px !important;"}

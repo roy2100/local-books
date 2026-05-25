@@ -45,7 +45,7 @@ describe("makeThemeCSS", () => {
 
   it("uses sans-serif font family when fontStyle is 'sans'", () => {
     const css = makeThemeCSS("light", 16, "", "sans");
-    expect(css).toContain("Source Han Sans SC");
+    expect(css).toContain("PingFang SC");
     expect(css).not.toContain("Source Han Serif SC");
   });
 
@@ -61,8 +61,6 @@ describe("makeThemeCSS", () => {
     expect(css).toContain("@font-face");
     expect(css).toContain("https://localhost:1420/fonts/SourceHanSerifSC-Regular.woff2");
     expect(css).toContain("https://localhost:1420/fonts/SourceHanSerifSC-SemiBold.woff2");
-    expect(css).toContain("https://localhost:1420/fonts/SourceHanSansSC-Regular.woff2");
-    expect(css).toContain("https://localhost:1420/fonts/SourceHanSansSC-Medium.woff2");
   });
 
   // ── Writing mode ──────────────────────────────────────────────────────────
