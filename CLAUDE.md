@@ -144,6 +144,12 @@ Always pair `-webkit-backdrop-filter` with `backdrop-filter`.
 
 Dark mode: bookshelf uses `@media (prefers-color-scheme: dark)` in App.css; reader uses JS-controlled classes (`.toc-panel--dark`, `.reader-settings--dark`).
 
+## Vendor Code Policy
+
+`vendor/foliate-js/` is a **fork**, not a pristine vendored copy. Merge conflicts with upstream are **not a concern** — feel free to add or modify logic directly in vendor files when it's the cleanest solution. Already-customized files:
+
+- `paginator.js` — scrollbar styles for scrolled flow; `afterLoad` style injection fix; `vertical` getter; `reloadSection()` method
+
 ## CSS Gotchas
 
 **`overflow-y: auto` + `::before` highlight line** — the pseudo-element scrolls away with content. Use non-uniform `border-top` (brighter) instead of `::before`.
