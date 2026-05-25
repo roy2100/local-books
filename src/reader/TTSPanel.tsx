@@ -15,6 +15,9 @@ interface Props {
   onStop: () => void;
 }
 
+// rate 值对应倍速: (100 + rate) / 100 = 0.5/0.75/0.9/1.0/1.25/1.5/1.75/2.0
+const SPEED_RATES = [-50, -25, -10, 0, 25, 50, 75, 100];
+
 const STATUS_LABEL: Record<TTSStatus, string> = {
   idle:    "就绪",
   loading: "合成中…",
@@ -93,14 +96,14 @@ export function TTSPanel({
         <div className="settings-stepper">
           <button
             className="stepper-btn"
-            onClick={() => setRate(Math.max(-50, rate - 25))}
-            disabled={rate <= -50}
+            onClick={() => { const i = SPEED_RATES.indexOf(rate); if (i > 0) setRate(SPEED_RATES[i - 1]); }}
+            disabled={rate <= SPEED_RATES[0]}
           >−</button>
           <span className="stepper-val">{displayRate}</span>
           <button
             className="stepper-btn"
-            onClick={() => setRate(Math.min(100, rate + 25))}
-            disabled={rate >= 100}
+            onClick={() => { const i = SPEED_RATES.indexOf(rate); if (i < SPEED_RATES.length - 1) setRate(SPEED_RATES[i + 1]); }}
+            disabled={rate >= SPEED_RATES[SPEED_RATES.length - 1]}
           >+</button>
         </div>
       </div>
