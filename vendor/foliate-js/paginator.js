@@ -1142,6 +1142,12 @@ export class Paginator extends HTMLElement {
     get vertical() {
         return this.#vertical
     }
+    get flow() {
+        return this.getAttribute('flow')
+    }
+    set flow(value) {
+        this.setAttribute('flow', value)
+    }
     async reloadSection() {
         const index = this.#index
         if (index == null || !this.sections?.[index]) return

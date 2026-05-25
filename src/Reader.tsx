@@ -28,12 +28,30 @@ interface Props {
 }
 
 interface FoliateRenderer extends HTMLElement {
-  setStyles?: (styles: string) => void;
+  setStyles?: (styles: string | string[]) => void;
   prev?: (distance?: number) => Promise<void>;
   next?: (distance?: number) => Promise<void>;
   reloadSection?: () => Promise<void>;
   getContents?: () => Array<{ doc: Document; index: number }>;
   readonly vertical?: boolean;
+  flow?: string;
+}
+
+interface FootnoteBeforeRenderDetail {
+  view: FoliateViewElement;
+}
+
+interface FootnoteRenderDetail {
+  view: FoliateViewElement;
+  contentHeight: number;
+  href: string;
+  type: string | null;
+  hidden: boolean;
+}
+
+interface FoliateLinkDetail {
+  a: Element;
+  href: string;
 }
 
 interface FoliateBook {
@@ -177,10 +195,10 @@ export default function Reader({ bookId, bookTitle }: Props) {
 
     const fnHandler = new FootnoteHandler();
     fnHandler.addEventListener('before-render', (e: Event) => {
-      const { view: fnView } = (e as CustomEvent).detail;
+      const { view: fnView } = (e as CustomEvent<FootnoteBeforeRenderDetail>).detail;
       // Close previous footnote view
       if (fnViewRef.current) {
-        (fnViewRef.current as any).close?.();
+        fnViewRef.current.close();
         fnViewRef.current.remove();
         fnViewRef.current = null;
       }
@@ -189,27 +207,22 @@ export default function Reader({ bookId, bookTitle }: Props) {
       // Must attach to DOM before goTo() — WKWebView won't load iframe.src on detached elements
       fnViewRef.current = fnView;
       fnPopupRef.current?.appendChild(fnView);
-      fnView.renderer?.setAttribute('flow', 'scrolled');
+      if (fnView.renderer) fnView.renderer.flow = 'scrolled';
       const { theme: t, fontSize: fs, fontStyle: fst } = themeRef.current;
       const baseCSS = makeThemeCSS(t, fs, window.location.origin, fst, 'horizontal');
       // Override padding/background for compact popup; transparent lets glass effect show through
       const fnCSS = `html,body{background:transparent!important;padding:10px 16px!important;margin:0!important;max-width:none!important;font-size:13px!important;}p,li,dt,dd,blockquote,td,th{font-size:1em!important;}::-webkit-scrollbar{display:none!important;}`;
       fnView.renderer?.setStyles?.([baseCSS, fnCSS]);
     });
-    fnHandler.addEventListener('render', () => {
-      // Sync-measure natural content height from iframe doc before making popup visible
-      const contents = (fnViewRef.current?.renderer as any)?.getContents?.() ?? [];
-      const doc = (contents[0] as any)?.doc as Document | undefined;
-      if (doc?.body && fnPopupRef.current) {
-        const h = doc.body.scrollHeight;
-        if (h > 0) {
-          fnPopupRef.current.style.height = `${Math.max(40, Math.min(200, h))}px`;
-        }
+    fnHandler.addEventListener('render', (e: Event) => {
+      const { contentHeight } = (e as CustomEvent<FootnoteRenderDetail>).detail;
+      if (contentHeight > 0 && fnPopupRef.current) {
+        fnPopupRef.current.style.height = `${Math.max(40, Math.min(200, contentHeight))}px`;
       }
       setFnVisible(true);
     });
     view.addEventListener('link', (e: Event) => {
-      const a = (e as CustomEvent).detail?.a as Element | null;
+      const { a } = (e as CustomEvent<FoliateLinkDetail>).detail;
       if (a) {
         const frame = a.ownerDocument?.defaultView?.frameElement;
         const frameRect = frame?.getBoundingClientRect() ?? new DOMRect();
@@ -221,14 +234,14 @@ export default function Reader({ bookId, bookTitle }: Props) {
           aRect.height,
         ));
       }
-      fnHandler.handle((view as any).book, e);
+      fnHandler.handle(view.book, e);
     });
 
     const openBook = async () => {
       try {
         await view.open(`epub://localhost/${bookId}/book.epub`);
         if (cancelled) return;
-        view.renderer?.setAttribute("flow", flowRef.current);
+        if (view.renderer) view.renderer.flow = flowRef.current;
         setToc(view.book?.toc ?? []);
         const { theme: nextTheme, fontSize: nextFontSize, fontStyle: nextFontStyle, writingMode: nextWritingMode } = themeRef.current;
         applyFoliateTheme(view, nextTheme, nextFontSize, nextFontStyle, nextWritingMode);
@@ -252,7 +265,7 @@ export default function Reader({ bookId, bookTitle }: Props) {
       view.remove();
       if (viewRef.current === view) viewRef.current = null;
       if (fnViewRef.current) {
-        (fnViewRef.current as any).close?.();
+        fnViewRef.current?.close();
         fnViewRef.current.remove();
         fnViewRef.current = null;
       }
@@ -277,7 +290,8 @@ export default function Reader({ bookId, bookTitle }: Props) {
 
   // Apply flow mode change without reloading the book.
   useEffect(() => {
-    viewRef.current?.renderer?.setAttribute("flow", flow);
+    const r = viewRef.current?.renderer;
+    if (r) r.flow = flow;
   }, [flow]);
 
   // Apply or remove t2s on the currently displayed section when the toggle changes.
@@ -538,7 +552,7 @@ export default function Reader({ bookId, bookTitle }: Props) {
         contentRef={fnPopupRef}
         onClose={() => {
           if (fnViewRef.current) {
-            (fnViewRef.current as any).close?.();
+            fnViewRef.current?.close();
             fnViewRef.current.remove();
             fnViewRef.current = null;
           }
