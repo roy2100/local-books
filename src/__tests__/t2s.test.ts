@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { convertText } from '../t2s';
+import { convertText } from '../lib/t2s';
 
 describe('convertText', () => {
   it('converts common traditional characters to simplified', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BG, makeThemeCSS } from "../readerTheme";
+import { BG, makeThemeCSS } from "../reader/readerTheme";
 
 describe("makeThemeCSS", () => {
   // ── Link colour ────────────────────────────────────────────────────────────

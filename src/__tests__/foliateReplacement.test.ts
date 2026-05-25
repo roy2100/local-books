@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import packageJson from "../../package.json";
-import readerSource from "../Reader.tsx?raw";
+import useFoliateSource from "../reader/hooks/useFoliate.ts?raw";
 
 describe("foliate-js replacement", () => {
   it("uses the vendored foliate-js view instead of epubjs", () => {
@@ -9,8 +9,8 @@ describe("foliate-js replacement", () => {
       devDependencies?: Record<string, string>;
     };
 
-    expect(readerSource).toContain("../vendor/foliate-js/view.js");
-    expect(readerSource).not.toContain('"epubjs"');
+    expect(useFoliateSource).toContain("../../../vendor/foliate-js/view.js");
+    expect(useFoliateSource).not.toContain('"epubjs"');
     expect(pkg.dependencies).not.toHaveProperty("epubjs");
     expect(pkg.devDependencies).not.toHaveProperty("epubjs");
   });

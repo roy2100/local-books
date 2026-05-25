@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { filterBooks } from "../utils";
-import type { Book } from "../utils";
+import { filterBooks } from "../lib/utils";
+import type { Book } from "../lib/utils";
 
 const book = (overrides: Partial<Book> = {}): Book => ({
   id: "1",
