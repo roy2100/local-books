@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 // @ts-ignore foliate-js ships plain JavaScript modules without TypeScript declarations.
 import "../vendor/foliate-js/view.js";
-import { BG, makeThemeCSS, type Theme } from "./readerTheme";
+import { BG, makeThemeCSS, type Theme, type FontStyle, type WritingMode } from "./readerTheme";
 import "./Reader.css";
 
 interface NavItem {
@@ -27,6 +27,8 @@ interface FoliateRenderer extends HTMLElement {
   setStyles?: (styles: string) => void;
   prev?: (distance?: number) => Promise<void>;
   next?: (distance?: number) => Promise<void>;
+  reloadSection?: () => Promise<void>;
+  readonly vertical?: boolean;
 }
 
 interface FoliateBook {
@@ -55,8 +57,10 @@ function applyFoliateTheme(
   view: FoliateViewElement | null,
   theme: Theme,
   fontSize: number,
+  fontStyle: FontStyle,
+  writingMode: WritingMode | null,
 ) {
-  view?.renderer?.setStyles?.(makeThemeCSS(theme, fontSize));
+  view?.renderer?.setStyles?.(makeThemeCSS(theme, fontSize, window.location.origin, fontStyle, writingMode));
 }
 
 function TocRow({
@@ -100,6 +104,9 @@ export default function Reader({ bookId, bookTitle }: Props) {
   const [progress, setProgress] = useState(0);
   const [theme, setTheme] = useState<Theme>("light");
   const [fontSize, setFontSize] = useState(18);
+  const [flow, setFlow] = useState<"scrolled" | "paginated">("paginated");
+  const [fontStyle, setFontStyle] = useState<FontStyle>("serif");
+  const [writingMode, setWritingMode] = useState<WritingMode | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [showUI, setShowUI] = useState(true);
@@ -109,8 +116,10 @@ export default function Reader({ bookId, bookTitle }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<FoliateViewElement | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const themeRef = useRef({ theme, fontSize });
-  useEffect(() => { themeRef.current = { theme, fontSize }; }, [theme, fontSize]);
+  const themeRef = useRef({ theme, fontSize, fontStyle, writingMode });
+  useEffect(() => { themeRef.current = { theme, fontSize, fontStyle, writingMode }; }, [theme, fontSize, fontStyle, writingMode]);
+  const flowRef = useRef(flow);
+  useEffect(() => { flowRef.current = flow; }, [flow]);
 
   // foliate-js initialization
   useEffect(() => {
@@ -150,10 +159,10 @@ export default function Reader({ bookId, bookTitle }: Props) {
       try {
         await view.open(`epub://localhost/${bookId}/book.epub`);
         if (cancelled) return;
-        view.renderer?.setAttribute("flow", "scrolled");
-        const { theme: nextTheme, fontSize: nextFontSize } = themeRef.current;
-        applyFoliateTheme(view, nextTheme, nextFontSize);
+        view.renderer?.setAttribute("flow", flowRef.current);
         setToc(view.book?.toc ?? []);
+        const { theme: nextTheme, fontSize: nextFontSize, fontStyle: nextFontStyle, writingMode: nextWritingMode } = themeRef.current;
+        applyFoliateTheme(view, nextTheme, nextFontSize, nextFontStyle, nextWritingMode);
         await view.next();
         if (!cancelled) setLoading(false);
       } catch (e) {
@@ -175,23 +184,41 @@ export default function Reader({ bookId, bookTitle }: Props) {
     };
   }, [bookId]);
 
-  // Apply theme CSS through foliate-js renderer styles.
+  // Apply theme/font CSS through foliate-js renderer styles.
   const applyTheme = useCallback(() => {
-    applyFoliateTheme(viewRef.current, theme, fontSize);
-  }, [theme, fontSize]);
+    applyFoliateTheme(viewRef.current, theme, fontSize, fontStyle, writingMode);
+  }, [theme, fontSize, fontStyle, writingMode]);
 
-  useEffect(() => { applyTheme(); }, [theme, fontSize, applyTheme]);
+  useEffect(() => { applyTheme(); }, [theme, fontSize, fontStyle, writingMode, applyTheme]);
+
+  // writing-mode changes require reloading the current section for foliate-js to re-detect direction.
+  useEffect(() => {
+    if (viewRef.current?.renderer?.reloadSection) {
+      void viewRef.current.renderer.reloadSection();
+    }
+  }, [writingMode]);
+
+  // Apply flow mode change without reloading the book.
+  useEffect(() => {
+    viewRef.current?.renderer?.setAttribute("flow", flow);
+  }, [flow]);
 
   // Keyboard navigation
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const { writingMode } = themeRef.current;
+      // vertical layout: left = next (columns flow right→left), right = prev
+      // horizontal layout forced: always LTR, bypass book.dir
+      // auto: trust renderer's detected writing-mode
+      const rendererVertical = viewRef.current?.renderer?.vertical === true;
+      const isVertical = writingMode === "vertical" || (writingMode !== "horizontal" && rendererVertical);
       if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
         e.preventDefault();
-        void viewRef.current?.goRight();
+        void (isVertical ? viewRef.current?.prev() : viewRef.current?.goRight());
       }
       if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
         e.preventDefault();
-        void viewRef.current?.goLeft();
+        void (isVertical ? viewRef.current?.next() : viewRef.current?.goLeft());
       }
       if (e.key === "Escape") { setShowToc(false); setShowSettings(false); }
     };
@@ -216,11 +243,17 @@ export default function Reader({ bookId, bookTitle }: Props) {
   useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current); }, []);
 
   const handlePrev = useCallback(() => {
-    void viewRef.current?.goLeft();
+    const { writingMode } = themeRef.current;
+    const rendererVertical = viewRef.current?.renderer?.vertical === true;
+    const isVertical = writingMode === "vertical" || (writingMode !== "horizontal" && rendererVertical);
+    void (isVertical ? viewRef.current?.next() : viewRef.current?.goLeft());
   }, []);
 
   const handleNext = useCallback(() => {
-    void viewRef.current?.goRight();
+    const { writingMode } = themeRef.current;
+    const rendererVertical = viewRef.current?.renderer?.vertical === true;
+    const isVertical = writingMode === "vertical" || (writingMode !== "horizontal" && rendererVertical);
+    void (isVertical ? viewRef.current?.prev() : viewRef.current?.goRight());
   }, []);
 
   const navigateTo = useCallback((href: string) => {
@@ -300,6 +333,59 @@ export default function Reader({ bookId, bookTitle }: Props) {
                     title={t === "light" ? "白色" : t === "sepia" ? "米色" : "深色"}
                   />
                 ))}
+              </div>
+            </div>
+            <div className="settings-divider" />
+            <div className="settings-row">
+              <span className="settings-label">翻页方式</span>
+              <div className="flow-chips">
+                <button
+                  className={`flow-chip ${flow === "scrolled" ? "active" : ""}`}
+                  onClick={() => setFlow("scrolled")}
+                  title="滚动"
+                >滚动</button>
+                <button
+                  className={`flow-chip ${flow === "paginated" ? "active" : ""}`}
+                  onClick={() => setFlow("paginated")}
+                  title="翻页"
+                >翻页</button>
+              </div>
+            </div>
+            <div className="settings-divider" />
+            <div className="settings-row">
+              <span className="settings-label">字体</span>
+              <div className="flow-chips">
+                <button
+                  className={`flow-chip ${fontStyle === "serif" ? "active" : ""}`}
+                  onClick={() => setFontStyle("serif")}
+                  title="思源宋体"
+                >宋体</button>
+                <button
+                  className={`flow-chip ${fontStyle === "sans" ? "active" : ""}`}
+                  onClick={() => setFontStyle("sans")}
+                  title="思源黑体"
+                >黑体</button>
+              </div>
+            </div>
+            <div className="settings-divider" />
+            <div className="settings-row">
+              <span className="settings-label">排版方向</span>
+              <div className="flow-chips">
+                <button
+                  className={`flow-chip ${writingMode === null ? "active" : ""}`}
+                  onClick={() => setWritingMode(null)}
+                  title="跟随书籍原始排版"
+                >自动</button>
+                <button
+                  className={`flow-chip ${writingMode === "horizontal" ? "active" : ""}`}
+                  onClick={() => setWritingMode("horizontal")}
+                  title="横排"
+                >横排</button>
+                <button
+                  className={`flow-chip ${writingMode === "vertical" ? "active" : ""}`}
+                  onClick={() => setWritingMode("vertical")}
+                  title="竖排"
+                >竖排</button>
               </div>
             </div>
           </div>

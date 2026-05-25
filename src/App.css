@@ -27,6 +27,22 @@
   }
 }
 
+@font-face {
+  font-family: 'Source Han Sans SC';
+  src: url('/fonts/SourceHanSansSC-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Source Han Sans SC';
+  src: url('/fonts/SourceHanSansSC-Medium.woff2') format('woff2');
+  font-weight: 500 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -34,7 +50,7 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-family: 'Source Han Sans SC', -apple-system, "Helvetica Neue", sans-serif;
   background: var(--bg);
   color: var(--text-primary);
   height: 100vh;

@@ -24,7 +24,7 @@ cd src-tauri && cargo clippy         # Lint Rust code
 
 ```bash
 npm test                               # frontend (Vitest, pure-logic only)
-cd src-tauri && cargo test --lib       # Rust unit tests (18 tests)
+cd src-tauri && cargo test --lib       # Rust unit tests
 ```
 
 ## Architecture
@@ -35,7 +35,7 @@ This is a **Tauri 2** desktop app (macOS-only target) with a React/TypeScript fr
 
 All business logic lives in Rust. The frontend calls Rust commands via `invoke()` from `@tauri-apps/api/core` and receives serialized data back — there is no direct filesystem access from JS.
 
-EPUB chapter content is served via a custom `epub://` URI scheme protocol registered in Rust. The reader iframe loads chapters directly by URL — no third-party EPUB renderer.
+EPUB rendering uses **foliate-js** (vendored at `vendor/foliate-js/`). The reader opens the book via a custom `epub://` URI scheme that serves the raw `.epub` binary — foliate-js handles all parsing internally.
 
 #### 导入书籍流程
 
@@ -55,25 +55,22 @@ flowchart LR
 ```mermaid
 flowchart TD
     A[双击书籍] --> B["open_reader_window()\n新建 WebviewWindow"]
-    B --> C["get_book_contents()\n解析 OPF spine + TOC"]
-    C --> D["Reader.tsx\n渲染目录 + 进度"]
+    B --> C["Reader.tsx\n挂载 &lt;foliate-view&gt;"]
 
-    D --> E["iframe.src =\nepub://localhost/{id}/{chapter}"]
+    C --> D["view.open('epub://localhost/{id}/book.epub')"]
 
     subgraph epub_protocol ["epub:// 协议处理器 (Rust)"]
-        E --> F["从 ZIP 按路径提取文件"]
-        F --> G{文件类型}
-        G -->|HTML / XHTML| H["注入 reader script\n+ 正确 MIME"]
-        G -->|CSS / 图片 / 字体| I["原样返回\n+ 正确 MIME"]
+        D --> E["读取 library.json\n找到 book.path"]
+        E --> F["返回完整 .epub 二进制\nContent-Type: application/epub+zip"]
     end
 
-    H --> J["章节渲染完成"]
+    F --> G["foliate-js 内部解析 EPUB\n提取 TOC、spine、内容"]
 
-    subgraph postmessage ["postMessage 双向通信"]
-        J -->|epub-ready| K["Reader 注入主题 CSS"]
-        K -->|epub-theme| J
-        J -->|epub-navigate\n跨文件链接| L["更新 spineIndex\n跳转章节"]
+    subgraph foliate_events ["foliate-js DOM 事件"]
+        G -->|relocate| H["更新进度 + currentHref"]
     end
+
+    C -->|"view.renderer.setStyles(css)"| G
 ```
 
 ### Rust backend (`src-tauri/src/lib.rs`)
@@ -82,9 +79,6 @@ Single file — all logic is here. Key types:
 
 - `Book` — id (uuid), title, author, path, cover (base64 data URL), added_at (unix secs), source_folder
 - `Library` — `books: Vec<Book>` + `folders: Vec<String>`
-- `SpineItem` — href (path from EPUB root), id
-- `TocEntry` — label, href, children (recursive)
-- `BookContents` — spine + toc, returned by `get_book_contents`
 
 Persistence: `Library` is serialized to `~/Library/Application Support/com.lielienan.local-books/library.json` via `app.path().app_data_dir()`.
 
@@ -93,39 +87,36 @@ Persistence: `Library` is serialized to `~/Library/Application Support/com.lieli
 2. Parse OPF with `roxmltree` → extract title, creator, cover image path
 3. Base64-encode cover as data URL
 
-**EPUB contents pipeline** (`parse_epub_contents`):
-1. Parse OPF manifest + spine → ordered `Vec<SpineItem>` (linear items only)
-2. TOC: prefers EPUB3 `nav.xhtml` (`epub:type="toc"`), falls back to EPUB2 `toc.ncx`
-3. All hrefs are normalized to paths relative to the EPUB root (e.g. `OEBPS/Text/ch01.xhtml`)
-
 **epub:// protocol handler** (`serve_epub_protocol`):
-- `epub://localhost/{book_id}/book.epub` → serves full binary (legacy, unused)
-- `epub://localhost/{book_id}/{file_path}` → extracts that file from the ZIP, serves it with correct MIME type
-- HTML/XHTML files get a script injected before `</body>` that: intercepts cross-file link clicks (posts `epub-navigate` message to parent), applies theme CSS received via `epub-theme` postMessage, and signals readiness with `epub-ready`
+- `epub://localhost/{book_id}/book.epub` → looks up `book.path` in library, returns the raw `.epub` file as `application/epub+zip`
+- foliate-js in the frontend handles all EPUB parsing from this binary
 
-Exposed Tauri commands: `pick_folder`, `import_folder`, `get_library`, `remove_book`, `remove_folder`, `refresh_folder`, `open_reader_window`, `get_book_contents`.
+Exposed Tauri commands: `pick_folder`, `import_folder`, `get_library`, `remove_book`, `remove_folder`, `refresh_folder`, `open_reader_window`.
 
 ### Frontend (`src/`)
 
 - `App.tsx` — bookshelf root; owns `Library` state; detects reader window via `window.__READER_BOOK_ID__`
-- `BookCard` — cover + right-click context menu
+- `BookCard` — cover card (no right-click menu; drag region handled via `data-tauri-drag-region`)
 - `FolderSidebar` — watched folders panel
-- `Reader.tsx` — custom EPUB reader (no epub.js)
+- `Reader.tsx` — EPUB reader powered by foliate-js
 - `Reader.css` — reader-specific styles
+- `readerTheme.ts` — `Theme` type, `BG` color map, `makeThemeCSS(theme, fontSize)` for foliate-js `setStyles`
+- `utils.ts` — shared `Book`/`Library` interfaces, `filterBooks()` helper
 
-**Reader architecture** (no third-party EPUB library):
+**Reader architecture** (foliate-js):
 
 ```
-Rust: get_book_contents → spine + TOC
-Reader: <iframe src="epub://localhost/{id}/{chapter.href}">
-iframe script → postMessage("epub-navigate") → Reader navigates spine
-Reader → postMessage("epub-theme", css) → iframe applies theme
+Reader mounts <foliate-view> web component (vendor/foliate-js/view.js)
+view.open("epub://localhost/{bookId}/book.epub")  ← Rust serves raw .epub
+foliate-js parses EPUB internally, exposes view.book.toc
+view.renderer.setStyles(css)  ← applies theme + font-size
+view emits "relocate" DOM event → Reader updates progress + currentHref
 ```
 
-- Chapter navigation: prev/next buttons, keyboard arrows, TOC clicks, in-chapter links
-- Theme/font-size injected via postMessage CSS (no iframe reload needed)
-- Cross-file footnote links handled by the injected script → parent decides whether to navigate or show popup
-- Progress shown as spine index percentage
+- Navigation: `view.prev()` / `view.next()` / `view.goTo(href)` — no spine index needed
+- Theme/font-size applied via `view.renderer.setStyles()` (no reload needed)
+- Progress from `relocate` event `detail.fraction` (0–1) or `detail.location.current/total`
+- TOC loaded from `view.book.toc` (foliate-js NavItem tree)
 
 Styling: plain CSS, no framework. `prefers-color-scheme` handled by the bookshelf; reader has explicit light/sepia/dark themes.
 
@@ -158,4 +149,4 @@ Dark mode: bookshelf uses `@media (prefers-color-scheme: dark)` in App.css; read
 **`overflow-y: auto` + `::before` highlight line** — the pseudo-element scrolls away with content. Use non-uniform `border-top` (brighter) instead of `::before`.
 `overflow: hidden` is safe (static clip) — `::before { top: 0 }` won't be clipped.
 
-**iframe scrollbar styling** — inject `::-webkit-scrollbar` CSS in Rust's `READER_SCRIPT` as a `<style>` tag. postMessage-injected CSS has timing issues for scrollbar rules.
+**foliate-js scrollbar + reader styles** — pass all reader CSS (including `::-webkit-scrollbar` rules) via `view.renderer.setStyles(css)` through `makeThemeCSS()` in `readerTheme.ts`. This is the single source of truth for the reader's visual appearance; do not inject styles by other means.

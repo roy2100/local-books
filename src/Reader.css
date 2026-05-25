@@ -286,6 +286,37 @@
   opacity: 0.8;
 }
 
+/* Flow chips (segmented control) */
+.flow-chips {
+  display: flex;
+  gap: 4px;
+  background: rgba(128, 128, 128, 0.12);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.flow-chip {
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.55;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.flow-chip.active {
+  background: rgba(128, 128, 128, 0.28);
+  opacity: 1;
+}
+
+.flow-chip:hover:not(.active) {
+  opacity: 0.8;
+}
+
 /* Theme chips */
 .theme-chips {
   display: flex;

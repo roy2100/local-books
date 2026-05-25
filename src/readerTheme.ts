@@ -1,4 +1,6 @@
 export type Theme = "light" | "sepia" | "dark";
+export type FontStyle = "serif" | "sans";
+export type WritingMode = "horizontal" | "vertical";
 
 export const BG: Record<Theme, string> = {
   light: "#faf9f6",
@@ -6,7 +8,41 @@ export const BG: Record<Theme, string> = {
   dark: "#1c1c1e",
 };
 
-export function makeThemeCSS(theme: Theme, fontSize: number): string {
+export function makeThemeCSS(theme: Theme, fontSize: number, fontBase: string = "", fontStyle: FontStyle = "serif", writingMode: WritingMode | null = null): string {
+  const vertical = writingMode === "vertical";
+  const fontFaceCSS = fontBase ? `
+    @font-face {
+      font-family: 'Source Han Serif SC';
+      src: url('${fontBase}/fonts/SourceHanSerifSC-Regular.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+      font-display: block;
+    }
+    @font-face {
+      font-family: 'Source Han Serif SC';
+      src: url('${fontBase}/fonts/SourceHanSerifSC-SemiBold.woff2') format('woff2');
+      font-weight: 600 700;
+      font-style: normal;
+      font-display: block;
+    }
+    @font-face {
+      font-family: 'Source Han Sans SC';
+      src: url('${fontBase}/fonts/SourceHanSansSC-Regular.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+      font-display: block;
+    }
+    @font-face {
+      font-family: 'Source Han Sans SC';
+      src: url('${fontBase}/fonts/SourceHanSansSC-Medium.woff2') format('woff2');
+      font-weight: 500 700;
+      font-style: normal;
+      font-display: block;
+    }
+  ` : "";
+  const fontFamily = fontStyle === "serif"
+    ? "'Source Han Serif SC', 'PingFang SC', Georgia, serif"
+    : "'Source Han Sans SC', 'PingFang SC', -apple-system, sans-serif";
   const text = { light: "#1a1a1a", sepia: "#3b2d1f", dark: "#dcdcdc" }[theme];
   const link = { light: "#1a73e8", sepia: "#7a5c00", dark: "#7eb8f7" }[theme];
   const scrollThumb = {
@@ -19,16 +55,18 @@ export function makeThemeCSS(theme: Theme, fontSize: number): string {
     sepia: "rgba(80,50,20,0.36)",
     dark: "rgba(255,255,255,0.32)",
   }[theme];
-  return `
+  return `${fontFaceCSS}
     html, body { background: ${BG[theme]} !important; color: ${text} !important; }
     body {
       font-size: ${fontSize}px !important;
-      font-family: -apple-system, 'PingFang SC', 'Noto Sans CJK SC', Georgia, serif !important;
-      line-height: 1.85 !important;
-      max-width: 700px !important;
-      margin: 0 auto !important;
-      padding: 48px 32px 80px !important;
+      font-family: ${fontFamily} !important;
+      ${writingMode ? `writing-mode: ${vertical ? "vertical-rl" : "horizontal-tb"} !important;` : ""}
+      line-height: ${vertical ? "2.0" : "1.85"} !important;
+      ${vertical ? "" : "max-width: 700px !important; margin: 0 auto !important; padding: 48px 32px 80px !important;"}
       word-break: break-word !important;
+      ${vertical ? "" : "text-align: justify !important;"}
+      -webkit-font-smoothing: antialiased !important;
+      text-rendering: optimizeLegibility !important;
     }
     a { color: inherit !important; }
     a[epub\\:type~="noteref"],
@@ -50,12 +88,11 @@ export function makeThemeCSS(theme: Theme, fontSize: number): string {
     }
     img { max-width: 100% !important; height: auto !important; }
     * { box-sizing: border-box; }
-    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb {
       background: ${scrollThumb};
-      border-radius: 3px;
-      transition: background 0.2s;
+      border-radius: 2px;
     }
     ::-webkit-scrollbar-thumb:hover { background: ${scrollThumbHover}; }
   `;

@@ -512,6 +512,21 @@ export class Paginator extends HTMLElement {
             grid-column: 1 / -1;
             grid-row: 1 / -1;
             overflow: auto;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(128,128,128,0.22) transparent;
+        }
+        :host([flow="scrolled"]) #container::-webkit-scrollbar {
+            width: 5px;
+        }
+        :host([flow="scrolled"]) #container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        :host([flow="scrolled"]) #container::-webkit-scrollbar-thumb {
+            background: rgba(128,128,128,0.22);
+            border-radius: 3px;
+        }
+        :host([flow="scrolled"]) #container::-webkit-scrollbar-thumb:hover {
+            background: rgba(128,128,128,0.38);
         }
         #header {
             grid-column: 3 / 4;
@@ -981,6 +996,12 @@ export class Paginator extends HTMLElement {
                     const $style = doc.createElement('style')
                     doc.head.append($style)
                     this.#styleMap.set(doc, [$styleBefore, $style])
+                    if (this.#styles) {
+                        if (Array.isArray(this.#styles)) {
+                            $styleBefore.textContent = this.#styles[0]
+                            $style.textContent = this.#styles[1]
+                        } else $style.textContent = this.#styles
+                    }
                 }
                 onLoad?.({ doc, index })
             }
@@ -1117,6 +1138,16 @@ export class Paginator extends HTMLElement {
     }
     focusView() {
         this.#view.document.defaultView.focus()
+    }
+    get vertical() {
+        return this.#vertical
+    }
+    async reloadSection() {
+        const index = this.#index
+        if (index == null || !this.sections?.[index]) return
+        this.sections[index]?.unload?.()
+        const src = await this.sections[index].load()
+        await this.#display({ index, src, anchor: 0 })
     }
     destroy() {
         this.#observer.unobserve(this)
