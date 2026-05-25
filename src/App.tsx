@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   BookOpen,
   Folder,
@@ -9,7 +8,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  Trash2,
   X as XIcon,
 } from "lucide-react";
 import "./App.css";
@@ -23,23 +21,15 @@ const READER_BOOK_TITLE = (window as any).__READER_BOOK_TITLE__ as string | unde
 
 function BookCard({
   book,
-  onRemove,
   onOpen,
 }: {
   book: Book;
-  onRemove: (id: string) => void;
   onOpen: (book: Book) => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-
   return (
     <div
       className="book-card"
       onDoubleClick={() => onOpen(book)}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        setMenuOpen(true);
-      }}
     >
       <div className="book-cover">
         {book.cover ? (
@@ -57,24 +47,6 @@ function BookCard({
         <p className="book-title">{book.title}</p>
         <p className="book-author">{book.author}</p>
       </div>
-      {menuOpen && (
-        <>
-          <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
-          <div className="context-menu">
-            <button onClick={() => { onOpen(book); setMenuOpen(false); }}>
-              <BookOpen className="menu-icon" aria-hidden="true" />
-              打开
-            </button>
-            <button
-              className="danger"
-              onClick={() => { onRemove(book.id); setMenuOpen(false); }}
-            >
-              <Trash2 className="menu-icon" aria-hidden="true" />
-              从书库移除
-            </button>
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -210,14 +182,8 @@ function Bookshelf() {
 
   return (
     <div className="app">
-      <div className="titlebar">
-        {/* Explicit drag zone: left of search, clears macOS traffic lights */}
-        <div
-          className="titlebar-drag"
-          onMouseDown={(e) => {
-            if (e.button === 0) getCurrentWindow().startDragging();
-          }}
-        />
+      <div className="titlebar" data-tauri-drag-region>
+        <div className="titlebar-drag" data-tauri-drag-region />
         <div className="titlebar-search">
           <Search className="search-icon" aria-hidden="true" />
           <input
@@ -288,7 +254,6 @@ function Bookshelf() {
                   <BookCard
                     key={book.id}
                     book={book}
-                    onRemove={handleRemoveBook}
                     onOpen={handleOpenBook}
                   />
                 ))}

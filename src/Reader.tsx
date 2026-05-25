@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ALargeSmall,
   ChevronLeft,
@@ -235,13 +234,8 @@ export default function Reader({ bookId, bookTitle }: Props) {
       style={{ background: BG[theme] }}
       onMouseMove={bumpUI}
     >
-      {/* Drag strip — above iframe so startDragging() works */}
-      <div
-        className="reader-drag-strip"
-        onMouseDown={(e) => {
-          if (e.button === 0) getCurrentWindow().startDragging();
-        }}
-      />
+      {/* Drag strip — above iframe, data-tauri-drag-region handled natively */}
+      <div className="reader-drag-strip" data-tauri-drag-region />
 
       {/* Top bar */}
       <div className={`reader-topbar ${showUI ? "visible" : ""}`} data-tauri-drag-region>
