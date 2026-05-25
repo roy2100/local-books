@@ -154,11 +154,6 @@ function Bookshelf() {
     }
   }, []);
 
-  const handleRemoveBook = useCallback(async (bookId: string) => {
-    const updated = await invoke<Library>("remove_book", { bookId });
-    setLibrary(updated);
-  }, []);
-
   const handleRemoveFolder = useCallback(
     async (folderPath: string) => {
       const updated = await invoke<Library>("remove_folder", { folderPath });
