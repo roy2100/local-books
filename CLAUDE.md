@@ -97,45 +97,45 @@ Exposed Tauri commands: `pick_folder`, `import_folder`, `get_library`, `remove_b
 
 ```
 src/
-├── App.tsx              — 路由入口：检测 window.__READER_BOOK_ID__ 决定渲染书架或阅读器
-├── App.css              — 书架全局样式
-├── main.tsx             — React 挂载点
+├── App.tsx              — routing entry: checks window.__READER_BOOK_ID__ to render bookshelf or reader
+├── App.css              — bookshelf global styles
+├── main.tsx             — React mount point
 ├── types/
-│   └── foliate.ts       — 所有 foliate-js 接口类型（NavItem、FoliateViewElement 等）
-├── components/          — 书架 UI 组件
-│   ├── Bookshelf.tsx    — 书架主体，持有 Library 状态，调用 Tauri 命令
-│   ├── BookCard.tsx     — 单本书卡片（双击打开）
-│   └── FolderSidebar.tsx — 监控文件夹侧边栏
-├── reader/              — 阅读器 feature，所有阅读器相关文件
-│   ├── Reader.tsx       — 阅读器组件（组合 hooks + 子组件）
-│   ├── Reader.css       — 阅读器样式
-│   ├── ReaderSettings.tsx — 设置面板（主题/字体/排版）
-│   ├── TocRow.tsx       — 目录列表行（递归）
-│   ├── FootnotePopup.tsx — 脚注浮窗（Floating UI）
-│   ├── readerTheme.ts   — Theme 类型、BG 色表、makeThemeCSS()
+│   └── foliate.ts       — all foliate-js interface types (NavItem, FoliateViewElement, etc.)
+├── components/          — bookshelf UI components
+│   ├── Bookshelf.tsx    — bookshelf root, owns Library state, calls Tauri commands
+│   ├── BookCard.tsx     — single book card (double-click to open)
+│   └── FolderSidebar.tsx — watched folders sidebar
+├── reader/              — reader feature; all reader-related files live here
+│   ├── Reader.tsx       — reader component (composes hooks + sub-components)
+│   ├── Reader.css       — reader styles
+│   ├── ReaderSettings.tsx — settings panel (theme / font / layout)
+│   ├── TocRow.tsx       — recursive TOC list row
+│   ├── FootnotePopup.tsx — footnote popup (Floating UI)
+│   ├── readerTheme.ts   — Theme type, BG color map, makeThemeCSS()
 │   └── hooks/
-│       ├── useFoliate.ts      — foliate-js 初始化、relocate 事件、脚注处理
-│       └── useAutoHideUI.ts   — 顶栏/底栏自动隐藏计时器
-└── lib/                 — 纯逻辑，无 React 依赖
-    ├── utils.ts         — Book/Library 接口、filterBooks()
-    ├── t2s.ts           — 繁简转换（convertText、convertDoc）
-    └── t2sTable.ts      — 繁简字符映射表
+│       ├── useFoliate.ts      — foliate-js init, relocate event, footnote handling
+│       └── useAutoHideUI.ts   — topbar/bottombar auto-hide timer
+└── lib/                 — pure logic, no React dependencies
+    ├── utils.ts         — Book/Library interfaces, filterBooks()
+    ├── t2s.ts           — traditional-to-simplified conversion (convertText, convertDoc)
+    └── t2sTable.ts      — character mapping table
 ```
 
 **Reader architecture** (foliate-js):
 
 ```
 Reader.tsx
-├── useFoliate()  — 创建 <foliate-view>，open() 书籍，监听 relocate/load/link 事件
-│                   返回 viewRef、toc、progress、currentHref、fnVisible 等
-├── useAutoHideUI() — 鼠标静止 3s 后隐藏顶/底栏
+├── useFoliate()    — creates <foliate-view>, opens book, handles relocate/load/link events
+│                     returns viewRef, toc, progress, currentHref, fnVisible, etc.
+├── useAutoHideUI() — hides topbar/bottombar after 3s of mouse inactivity
 └── JSX
-    ├── ReaderSettings  — 设置面板
-    ├── TocRow          — 目录列表
-    └── FootnotePopup   — 脚注弹窗
+    ├── ReaderSettings  — settings panel
+    ├── TocRow          — TOC list
+    └── FootnotePopup   — footnote popup
 ```
 
-- foliate-view 通过 `epub://localhost/{bookId}/book.epub` 加载书籍（Rust 协议处理器返回原始 .epub）
+- foliate-view loads the book via `epub://localhost/{bookId}/book.epub` (Rust protocol handler returns raw .epub)
 - Navigation: `view.prev()` / `view.next()` / `view.goTo(href)` — no spine index needed
 - Theme/font-size applied via `view.renderer.setStyles()` (no reload needed)
 - Progress from `relocate` event `detail.fraction` (0–1) or `detail.location.current/total`
